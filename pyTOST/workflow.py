@@ -28,7 +28,7 @@ from .engines.spatiotemporal_tost import SpatioTemporalTOST, SpatioTemporalConfi
 
 from .engines.heteroskedastic_tost import HeteroskedasticTOST
 from .engines.robust_location_tost import RobustLocationTOST
-from .bootstrap import cluster_bootstrap, spatial_block_bootstrap
+from .bootstrap import cluster_bootstrap, spatial_block_bootstrap, spatial_within_building_block_bootstrap
 
 
 @dataclass(frozen=True)
@@ -176,9 +176,62 @@ def run_tost(
         )
         out["sensitivity"] = sens
 
-    # Optional bootstrap sanity check (cluster bootstrap for mean)
+    # Optional bootstrap sanity check for the mean (validation CI)
+    #
+    # By default we use a cluster bootstrap over `cluster` (e.g., buildings).
+    # For spatial/spatiotemporal engines, if the configuration indicates *cross-building*
+    # dependence (e.g., a global field), we instead use a simple spatial block bootstrap
+    # over building centroids to avoid understating uncertainty.
     if cluster and cluster in df.columns and options.bootstrap_B > 0:
         stat = lambda d_: d_[y].mean()
-        out["bootstrap"] = cluster_bootstrap(df, y, cluster, stat, B=options.bootstrap_B, seed=options.seed)
+
+        if eng in {"spatial", "spatiotemporal"} and x and ycoord:
+            use_spatial_blocks = _infer_cross_building_dependence(
+                options=options,
+                spatial_config=spatial_config,
+                spatiotemporal_config=spatiotemporal_config,
+            )
+
+            # Spatial engine: validate within-building spatial dependence with a within-building block bootstrap.
+            # If the user indicates cross-building dependence, switch to a block bootstrap over building centroids.
+            if eng == "spatial" and not use_spatial_blocks:
+                bb = spatial_within_building_block_bootstrap(
+                    df,
+                    y=y,
+                    building_col=cluster,
+                    x_col=x,
+                    y_col=ycoord,
+                    fit_fn=stat,
+                    B=options.bootstrap_B,
+                    seed=options.seed,
+                    block_size=options.spatial_block_size,
+                )
+                bb["method"] = "spatial_within_building_block_bootstrap"
+                out["bootstrap"] = bb
+
+            else:
+                # Cross-building dependence (or spatiotemporal): bootstrap blocks over building centroids.
+                if use_spatial_blocks:
+                    bb = spatial_block_bootstrap(
+                        df,
+                        y=y,
+                        building_col=cluster,
+                        x_col=x,
+                        y_col=ycoord,
+                        fit_fn=stat,
+                        B=options.bootstrap_B,
+                        seed=options.seed,
+                        block_size=options.spatial_block_size,
+                    )
+                    bb["method"] = "spatial_block_bootstrap"
+                    out["bootstrap"] = bb
+                else:
+                    bb = cluster_bootstrap(df, y, cluster, stat, B=options.bootstrap_B, seed=options.seed)
+                    bb["method"] = "cluster_bootstrap"
+                    out["bootstrap"] = bb
+        else:
+            bb = cluster_bootstrap(df, y, cluster, stat, B=options.bootstrap_B, seed=options.seed)
+            bb["method"] = "cluster_bootstrap"
+            out["bootstrap"] = bb
 
     return out

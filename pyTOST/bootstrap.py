@@ -165,6 +165,99 @@ def spatial_block_bootstrap(
     ci = (float(np.quantile(arr, 0.05)), float(np.quantile(arr, 0.95)))
     return {"B": B, "ci_perc_90": ci, "samples": arr, "block_size": float(block_size) if block_size is not None else None}
 
+
+
+def spatial_within_building_block_bootstrap(
+    df: pd.DataFrame,
+    *,
+    y: str,
+    building_col: str,
+    x_col: str,
+    y_col: str,
+    fit_fn: Callable[[pd.DataFrame], float],
+    B: int = 200,
+    seed: int = 42,
+    block_size: float | None = None,
+    circular: bool = False,
+) -> Dict:
+    """Spatial block bootstrap *within each building*.
+
+    Use when locations within a building are spatially dependent, but buildings are treated
+    as independent replicates. The resampling unit is a spatial grid cell (block) within
+    each building. For each bootstrap draw, we resample blocks *within each building*
+    with replacement and then concatenate the resampled buildings.
+
+    This yields a validation CI for statistics like the overall mean that is more
+    commensurate with within-building spatial dependence than an IID row bootstrap.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Must include building_col, x_col, y_col, and y.
+    block_size : float or None
+        Grid cell size in coordinate units. If None, we use a heuristic based on the
+        median nearest-neighbor distance across all points.
+    circular : bool
+        Included for API symmetry; not used for purely spatial resampling.
+
+    Returns
+    -------
+    dict with keys {"B","ci_perc_90","samples","block_size"}.
+    """
+    rng = np.random.default_rng(seed)
+
+    # Heuristic block size if not provided: 2x median nearest-neighbor distance (all points)
+    if block_size is None:
+        xy = df[[x_col, y_col]].to_numpy(float)
+        if xy.shape[0] < 3:
+            block_size = float(np.ptp(xy[:, 0]) + np.ptp(xy[:, 1]) + 1.0) if xy.size else 1.0
+        else:
+            dx = xy[:, None, 0] - xy[None, :, 0]
+            dy = xy[:, None, 1] - xy[None, :, 1]
+            D = np.sqrt(dx * dx + dy * dy)
+            np.fill_diagonal(D, np.inf)
+            nn = np.min(D, axis=1)
+            block_size = float(2.0 * np.median(nn))
+            if not np.isfinite(block_size) or block_size <= 0:
+                block_size = 1.0
+
+    block_size = float(block_size)
+
+    # Precompute per-building block labels
+    blds = df[building_col].unique()
+    per_building_blocks: dict[str, np.ndarray] = {}
+    per_building_rows: dict[str, pd.DataFrame] = {}
+    for b in blds:
+        d = df[df[building_col] == b].copy()
+        per_building_rows[b] = d
+        cx = d[x_col].to_numpy(float)
+        cy = d[y_col].to_numpy(float)
+        xmin, ymin = float(cx.min()), float(cy.min())
+        ix = np.floor((cx - xmin) / block_size).astype(int)
+        iy = np.floor((cy - ymin) / block_size).astype(int)
+        per_building_blocks[b] = (ix.astype(str) + ":" + iy.astype(str))
+
+    values = []
+    for k in range(B):
+        out_parts = []
+        for b in blds:
+            d = per_building_rows[b]
+            labels = per_building_blocks[b]
+            u = np.unique(labels)
+            nb = len(u)
+            take = rng.choice(u, size=nb, replace=True)
+            parts = []
+            for j, bl in enumerate(take):
+                chunk = d.iloc[np.where(labels == bl)[0]].copy()
+                parts.append(chunk)
+            out_parts.append(pd.concat(parts, axis=0, ignore_index=True))
+        out = pd.concat(out_parts, axis=0, ignore_index=True)
+        values.append(float(fit_fn(out)))
+
+    arr = np.asarray(values, dtype=float)
+    ci = (float(np.quantile(arr, 0.05)), float(np.quantile(arr, 0.95)))
+    return {"B": B, "ci_perc_90": ci, "samples": arr, "block_size": block_size}
+
 def iid_bootstrap_ci_mean(df: pd.DataFrame, y: str, B: int = 800, alpha: float = 0.05, seed: int = 42):
     """IID (rows) bootstrap CI for mean(y)."""
     rng = np.random.default_rng(seed)
