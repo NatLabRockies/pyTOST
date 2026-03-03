@@ -123,7 +123,10 @@ class SpatioTemporalConfig:
         - "wald": use Var(μ̂)=1/(1ᵀK⁻¹1) and a Normal critical value z_{1-alpha}.
         - "time_block_bootstrap": moving-block bootstrap over time of full spatial snapshots.
           Preserves spatial dependence within time slices and approximates temporal dependence by resampling blocks.
-          Uses the GLS mean estimator under the fitted K (weights fixed at K-hat).
+          Uses a moving-block bootstrap over time of full spatial snapshots.
+          By default keeps GLS weights fixed at K-hat (fast, conditional on covariance).
+          If mu_timeblock_refit_cov=True, refits the joint ML covariance each draw (slower,
+          but commensurate with model-based uncertainty).
     mu_bootstrap_B
         Number of parametric bootstrap replicates used when mu_ci_method="parametric_bootstrap".
     mu_bootstrap_seed
@@ -153,6 +156,10 @@ class SpatioTemporalConfig:
     mu_ci_method: Literal["parametric_bootstrap", "wald", "time_block_bootstrap"] = "parametric_bootstrap"
     mu_timeblock_L: Optional[int] = None
     mu_timeblock_circular: bool = True
+    mu_timeblock_adapt_by_phi: bool = True
+    mu_timeblock_L_factor: float = 2.0
+    mu_timeblock_refit_cov: bool = False
+    mu_timeblock_refit_maxiter: int = 120
     mu_bootstrap_B: int = 400
     mu_bootstrap_seed: Optional[int] = 12345
 
@@ -293,7 +300,8 @@ class SpatioTemporalTOST:
             np.fill_diagonal(R, 1.0)
             return R
 
-        def nll(z: np.ndarray) -> float:
+        def nll(z: np.ndarray, y_override: Optional[np.ndarray] = None) -> float:
+            y_use = y if (y_override is None) else np.asarray(y_override, float)
             mu = float(z[0])
             log_sigma2, log_rho, log_tau2, log_phi = map(float, z[1:])
             sigma2 = float(np.exp(log_sigma2))
@@ -343,7 +351,7 @@ class SpatioTemporalTOST:
             # nugget
             K.flat[:: K.shape[0] + 1] += tau2
 
-            r = y - mu * one
+            r = y_use - mu * one
             n = r.size
             try:
                 L = linalg.cholesky(K, lower=True, check_finite=False)
@@ -439,45 +447,108 @@ class SpatioTemporalTOST:
             # - Preserves spatial dependence within each time slice exactly.
             # - Approximates temporal dependence by resampling contiguous time blocks.
             #
-            # We keep the GLS weights fixed at the fitted covariance K (i.e., we bootstrap the
-            # estimator distribution under dependence without refitting covariance each draw).
+            # Two modes:
+            #   (A) refit_cov=False (default): keep GLS weights fixed at K-hat (fast; conditional on covariance).
+            #   (B) refit_cov=True: refit joint ML covariance each bootstrap draw (slower; includes covariance-parameter uncertainty).
             B = int(self.config.mu_bootstrap_B)
             if B <= 0:
                 raise ValueError("mu_bootstrap_B must be > 0 when mu_ci_method='time_block_bootstrap'.")
+
+            # Choose block length.
+            # Default: max(ceil(sqrt(T)), ceil(L_factor * (1+phi)/(1-phi))) if adapt_by_phi=True.
             Lblk = self.config.mu_timeblock_L
-            Lblk = int(math.ceil(math.sqrt(T))) if (Lblk is None) else int(Lblk)
-            Lblk = max(2, min(Lblk, T))
+            if Lblk is None:
+                L0 = int(math.ceil(math.sqrt(T)))
+                if bool(self.config.mu_timeblock_adapt_by_phi):
+                    # Integrated autocorrelation time proxy for AR(1)
+                    iat = (1.0 + phi) / max(1e-6, (1.0 - phi))
+                    Lphi = int(math.ceil(float(self.config.mu_timeblock_L_factor) * iat))
+                    Lblk = max(L0, Lphi)
+                else:
+                    Lblk = L0
+            else:
+                Lblk = int(Lblk)
+            Lblk = max(2, min(int(Lblk), T))
             circular = bool(self.config.mu_timeblock_circular)
 
             rng = np.random.default_rng(self.config.mu_bootstrap_seed)
 
-            # Precompute GLS weights w = K^{-1}1 / (1'K^{-1}1) so mu_hat = w'y.
-            w = Kinvs1 / denom  # length n
-
             Ymat = y.reshape(T, S)  # consistent with df2 sort (_tix, loc_id)
-            mu_star = np.empty(B, dtype=float)
-
             nblocks = int(math.ceil(T / Lblk))
-            for b in range(B):
-                idx = []
-                # sample block start indices with replacement
-                starts = rng.integers(0, T, size=nblocks)
-                for s0 in starts:
-                    if circular:
-                        idx.extend([(s0 + k) % T for k in range(Lblk)])
-                    else:
-                        s1 = min(T - Lblk, int(s0))
-                        idx.extend([s1 + k for k in range(Lblk)])
-                    if len(idx) >= T:
-                        break
-                idx = idx[:T]
-                yb = Ymat[idx, :].reshape(-1)
-                mu_star[b] = float(w @ yb)
 
-            ci_low = float(np.quantile(mu_star, alpha))
-            ci_high = float(np.quantile(mu_star, 1.0 - alpha))
-            se = float(np.std(mu_star, ddof=1)) if B > 1 else float("nan")
-            ci_method = f"Time-block bootstrap CI (B={B}, L={Lblk})"
+            if not bool(self.config.mu_timeblock_refit_cov):
+                # Fast conditional bootstrap: keep GLS weights fixed at fitted K.
+                # Precompute GLS weights w = K^{-1}1 / (1'K^{-1}1) so mu_hat = w'y.
+                w = Kinvs1 / denom  # length n
+
+                mu_star = np.empty(B, dtype=float)
+                for b in range(B):
+                    idx = []
+                    starts = rng.integers(0, T, size=nblocks)
+                    for s0 in starts:
+                        s0 = int(s0)
+                        if circular:
+                            idx.extend([(s0 + k) % T for k in range(Lblk)])
+                        else:
+                            s1 = min(T - Lblk, s0)
+                            idx.extend([s1 + k for k in range(Lblk)])
+                        if len(idx) >= T:
+                            break
+                    idx = idx[:T]
+                    yb = Ymat[idx, :].reshape(-1)
+                    mu_star[b] = float(w @ yb)
+
+                ci_low = float(np.quantile(mu_star, alpha))
+                ci_high = float(np.quantile(mu_star, 1.0 - alpha))
+                se = float(np.std(mu_star, ddof=1)) if B > 1 else float("nan")
+                ci_method = f"Time-block bootstrap CI (conditional; B={B}, L={Lblk})"
+
+            else:
+                # Commensurate bootstrap: refit the joint ML covariance each draw.
+                # Warm-start at the original optimum (opt.x) and cap iterations for demo friendliness.
+                maxiter = int(max(20, self.config.mu_timeblock_refit_maxiter))
+                mu_star = np.empty(B, dtype=float)
+
+                # Use original optimum as warm start
+                z_warm = np.asarray(opt.x, float)
+
+                for b in range(B):
+                    idx = []
+                    starts = rng.integers(0, T, size=nblocks)
+                    for s0 in starts:
+                        s0 = int(s0)
+                        if circular:
+                            idx.extend([(s0 + k) % T for k in range(Lblk)])
+                        else:
+                            s1 = min(T - Lblk, s0)
+                            idx.extend([s1 + k for k in range(Lblk)])
+                        if len(idx) >= T:
+                            break
+                    idx = idx[:T]
+                    yb = Ymat[idx, :].reshape(-1)
+
+                    # Define nll for this bootstrap draw (same structure, new y vector)
+                    def nll_b(zb):
+                        return nll(zb, y_override=yb)
+
+                    optb = optimize.minimize(
+                        nll_b,
+                        z_warm,
+                        method="L-BFGS-B",
+                        bounds=bounds,
+                        options={"maxiter": maxiter},
+                    )
+                    if not optb.success:
+                        # Fall back to fixed-weight estimate if refit fails
+                        mu_star[b] = float((Kinvs1 / denom) @ yb)
+                    else:
+                        mu_star[b] = float(optb.x[0])
+
+                ci_low = float(np.quantile(mu_star, alpha))
+                ci_high = float(np.quantile(mu_star, 1.0 - alpha))
+                se = float(np.std(mu_star, ddof=1)) if B > 1 else float("nan")
+                ci_method = f"Time-block bootstrap CI (refit ML; B={B}, L={Lblk}, maxiter={maxiter})"
+
 
         else:
             # Parametric bootstrap: y* ~ N(mu_hat * 1, K), recompute GLS mu_hat*.
@@ -522,6 +593,10 @@ class SpatioTemporalTOST:
                     ci_high=ci_high,
                     equivalent=(ci_low > -d and ci_high < d),
                     method=f"Joint separable spatiotemporal ML (AR1 ⊗ Matérn) + {ci_method}",
+                    st_sigma2=sigma2,
+                    st_tau2=tau2,
+                    st_rho=rho,
+                    st_phi=phi,
                 )
             )
         return pd.DataFrame(rows)
