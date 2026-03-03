@@ -9,6 +9,7 @@ References
 - Lahiri (2003) Resampling Methods for Dependent Data.
 """
 from __future__ import annotations
+import math
 import numpy as np
 import pandas as pd
 from typing import Callable, Dict
@@ -194,4 +195,78 @@ def moving_block_bootstrap_ci_mean(
         idx = np.asarray(idx[:n], int)
         boots[k] = yv[idx].mean()
     lo, hi = np.quantile(boots, [alpha, 1 - alpha])
+    return (float(min(lo, hi)), float(max(lo, hi)))
+
+def spatiotemporal_time_block_bootstrap_ci_mean(
+    df: pd.DataFrame,
+    y: str,
+    time: str,
+    B: int = 800,
+    alpha: float = 0.05,
+    block_len: int = 5,
+    seed: int = 42,
+    circular: bool = True,
+):
+    """Time-block bootstrap CI for mean(y) for balanced-panel spatiotemporal data.
+
+    This is a *commensurate* nonparametric CI for spatiotemporal panels when you want to
+    preserve spatial dependence within each time slice while accounting for temporal
+    dependence across slices.
+
+    Resampling scheme:
+      - Treat each time slice as one multivariate observation (all spatial locations at that time).
+      - Resample contiguous blocks of time indices (moving-block bootstrap) until length T is filled.
+      - For each bootstrap draw, compute the mean of y across the resampled time slices.
+
+    Notes
+    -----
+    - This targets the uncertainty in the *overall mean* under serial dependence.
+    - It does not refit any covariance model (distribution-free).
+    - Requires a balanced panel: every time slice must contain the same number of rows.
+    """
+    rng = np.random.default_rng(seed)
+
+    # Sort and group by time
+    times = np.asarray(sorted(df[time].unique()))
+    T = len(times)
+    if T <= 1:
+        yv = df[y].to_numpy(float)
+        m = float(np.mean(yv)) if yv.size else float("nan")
+        return (m, m)
+
+    groups = []
+    sizes = []
+    for t in times:
+        g = df.loc[df[time] == t, y].to_numpy(float)
+        groups.append(g)
+        sizes.append(len(g))
+
+    if len(set(sizes)) != 1:
+        raise ValueError("spatiotemporal_time_block_bootstrap_ci_mean requires a balanced panel (constant rows per time slice).")
+
+    S = sizes[0]
+    n_per_time = S
+    block_len = int(max(1, min(int(block_len), T)))
+
+    boots = np.empty(B, float)
+    nblocks = int(math.ceil(T / block_len))
+    for b in range(B):
+        idx = []
+        starts = rng.integers(0, T, size=nblocks)
+        for s0 in starts:
+            s0 = int(s0)
+            if circular:
+                idx.extend([(s0 + k) % T for k in range(block_len)])
+            else:
+                s1 = min(T - block_len, s0)
+                idx.extend([s1 + k for k in range(block_len)])
+            if len(idx) >= T:
+                break
+        idx = idx[:T]
+
+        # concatenate full time slices and average
+        yb = np.concatenate([groups[i] for i in idx], axis=0)
+        boots[b] = float(np.mean(yb))
+
+    lo, hi = np.quantile(boots, [alpha, 1.0 - alpha])
     return (float(min(lo, hi)), float(max(lo, hi)))

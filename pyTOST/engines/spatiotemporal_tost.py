@@ -121,6 +121,9 @@ class SpatioTemporalConfig:
         - "parametric_bootstrap" (default): simulate y* ~ N(μ̂ 1, K) and recompute μ̂* via GLS,
           then take percentile CI with bounds at (alpha, 1-alpha).
         - "wald": use Var(μ̂)=1/(1ᵀK⁻¹1) and a Normal critical value z_{1-alpha}.
+        - "time_block_bootstrap": moving-block bootstrap over time of full spatial snapshots.
+          Preserves spatial dependence within time slices and approximates temporal dependence by resampling blocks.
+          Uses the GLS mean estimator under the fitted K (weights fixed at K-hat).
     mu_bootstrap_B
         Number of parametric bootstrap replicates used when mu_ci_method="parametric_bootstrap".
     mu_bootstrap_seed
@@ -147,7 +150,9 @@ class SpatioTemporalConfig:
     se_ratio_weight: float = 2.0
 
     # Joint-fit mean CI selection
-    mu_ci_method: Literal["parametric_bootstrap", "wald"] = "parametric_bootstrap"
+    mu_ci_method: Literal["parametric_bootstrap", "wald", "time_block_bootstrap"] = "parametric_bootstrap"
+    mu_timeblock_L: Optional[int] = None
+    mu_timeblock_circular: bool = True
     mu_bootstrap_B: int = 400
     mu_bootstrap_seed: Optional[int] = 12345
 
@@ -421,12 +426,59 @@ class SpatioTemporalTOST:
             return None
 
                 # Compute CI for mu_hat from the joint fit.
+# Compute CI for mu_hat from the joint fit.
         if self.config.mu_ci_method == "wald":
             zcrit = float(stats.norm.ppf(1 - alpha))
             se = float(np.sqrt(var_mu))
             ci_low = float(mu_hat - zcrit * se)
             ci_high = float(mu_hat + zcrit * se)
             ci_method = "Wald CI"
+
+        elif self.config.mu_ci_method == "time_block_bootstrap":
+            # Moving-block bootstrap in time of full spatial snapshots (balanced panel).
+            # - Preserves spatial dependence within each time slice exactly.
+            # - Approximates temporal dependence by resampling contiguous time blocks.
+            #
+            # We keep the GLS weights fixed at the fitted covariance K (i.e., we bootstrap the
+            # estimator distribution under dependence without refitting covariance each draw).
+            B = int(self.config.mu_bootstrap_B)
+            if B <= 0:
+                raise ValueError("mu_bootstrap_B must be > 0 when mu_ci_method='time_block_bootstrap'.")
+            Lblk = self.config.mu_timeblock_L
+            Lblk = int(math.ceil(math.sqrt(T))) if (Lblk is None) else int(Lblk)
+            Lblk = max(2, min(Lblk, T))
+            circular = bool(self.config.mu_timeblock_circular)
+
+            rng = np.random.default_rng(self.config.mu_bootstrap_seed)
+
+            # Precompute GLS weights w = K^{-1}1 / (1'K^{-1}1) so mu_hat = w'y.
+            w = Kinvs1 / denom  # length n
+
+            Ymat = y.reshape(T, S)  # consistent with df2 sort (_tix, loc_id)
+            mu_star = np.empty(B, dtype=float)
+
+            nblocks = int(math.ceil(T / Lblk))
+            for b in range(B):
+                idx = []
+                # sample block start indices with replacement
+                starts = rng.integers(0, T, size=nblocks)
+                for s0 in starts:
+                    if circular:
+                        idx.extend([(s0 + k) % T for k in range(Lblk)])
+                    else:
+                        s1 = min(T - Lblk, int(s0))
+                        idx.extend([s1 + k for k in range(Lblk)])
+                    if len(idx) >= T:
+                        break
+                idx = idx[:T]
+                yb = Ymat[idx, :].reshape(-1)
+                mu_star[b] = float(w @ yb)
+
+            ci_low = float(np.quantile(mu_star, alpha))
+            ci_high = float(np.quantile(mu_star, 1.0 - alpha))
+            se = float(np.std(mu_star, ddof=1)) if B > 1 else float("nan")
+            ci_method = f"Time-block bootstrap CI (B={B}, L={Lblk})"
+
         else:
             # Parametric bootstrap: y* ~ N(mu_hat * 1, K), recompute GLS mu_hat*.
             B = int(self.config.mu_bootstrap_B)
