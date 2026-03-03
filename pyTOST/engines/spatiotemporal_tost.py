@@ -156,6 +156,9 @@ class SpatioTemporalConfig:
     mu_ci_method: Literal["parametric_bootstrap", "wald", "time_block_bootstrap"] = "parametric_bootstrap"
     mu_timeblock_L: Optional[int] = None
     mu_timeblock_circular: bool = True
+    mu_timeblock_center: bool = True
+    # If True, center each bootstrap resample to match the original sample mean before fitting.
+    # This reduces spurious one-sided percentile intervals under finite-sample block resampling.
     mu_timeblock_adapt_by_phi: bool = True
     mu_timeblock_L_factor: float = 2.0
     mu_timeblock_refit_cov: bool = False
@@ -496,6 +499,9 @@ class SpatioTemporalTOST:
                             break
                     idx = idx[:T]
                     yb = Ymat[idx, :].reshape(-1)
+                    if bool(self.config.mu_timeblock_center):
+                        # Center to preserve the original overall mean under block resampling
+                        yb = yb - float(np.mean(yb)) + float(np.mean(y))
                     mu_star[b] = float(w @ yb)
 
                 ci_low = float(np.quantile(mu_star, alpha))
@@ -526,6 +532,9 @@ class SpatioTemporalTOST:
                             break
                     idx = idx[:T]
                     yb = Ymat[idx, :].reshape(-1)
+                    if bool(self.config.mu_timeblock_center):
+                        # Center to preserve the original overall mean under block resampling
+                        yb = yb - float(np.mean(yb)) + float(np.mean(y))
 
                     # Define nll for this bootstrap draw (same structure, new y vector)
                     def nll_b(zb):
