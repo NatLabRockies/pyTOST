@@ -178,66 +178,114 @@ def spatial_within_building_block_bootstrap(
     B: int = 200,
     seed: int = 42,
     block_size: float | None = None,
-    circular: bool = False,
+    min_blocks_per_building: int = 4,
+    max_shrink_iters: int = 8,
 ) -> Dict:
     """Spatial block bootstrap *within each building*.
 
-    Use when locations within a building are spatially dependent, but buildings are treated
-    as independent replicates. The resampling unit is a spatial grid cell (block) within
-    each building. For each bootstrap draw, we resample blocks *within each building*
-    with replacement and then concatenate the resampled buildings.
+    Why this exists
+    ---------------
+    A building-level cluster bootstrap is appropriate when buildings are independent and
+    within-building observations are IID. When locations on a roof/building are spatially
+    dependent, IID resampling within a building can understate uncertainty. A common and
+    defensible nonparametric remedy is a *spatial block bootstrap*, where the resampling
+    unit is a spatial block large enough to preserve local dependence (Lahiri, 2003).
 
-    This yields a validation CI for statistics like the overall mean that is more
-    commensurate with within-building spatial dependence than an IID row bootstrap.
+    This implementation uses a simple grid-based block bootstrap separately within each
+    building:
+      1) Assign each point to a within-building grid cell (block).
+      2) Resample blocks with replacement *within each building*.
+      3) Concatenate resampled buildings and compute the statistic via ``fit_fn``.
+
+    Practical safeguards
+    --------------------
+    A frequent failure mode in synthetic demos is choosing a block size so large that each
+    building collapses to a single block, producing *degenerate* bootstrap samples and a
+    CI of the form [x, x]. To avoid this, when ``block_size`` is not supplied we estimate
+    it from *within-building* nearest-neighbor distances (not global distances across
+    buildings), and we adaptively shrink it per building until at least
+    ``min_blocks_per_building`` unique blocks are present (or we hit ``max_shrink_iters``).
 
     Parameters
     ----------
-    df : DataFrame
-        Must include building_col, x_col, y_col, and y.
-    block_size : float or None
-        Grid cell size in coordinate units. If None, we use a heuristic based on the
-        median nearest-neighbor distance across all points.
-    circular : bool
-        Included for API symmetry; not used for purely spatial resampling.
+    block_size
+        Grid cell size in coordinate units. If None, we estimate from within-building
+        median nearest-neighbor distances.
+    min_blocks_per_building
+        Target minimum number of distinct blocks per building when adaptively shrinking.
+        (Defaults to 4; higher values increase bootstrap variability but reduce block size.)
+    max_shrink_iters
+        Maximum number of times to shrink the candidate block size by 1/2 per building.
 
     Returns
     -------
-    dict with keys {"B","ci_perc_90","samples","block_size"}.
+    dict with keys:
+        - "B": bootstrap replicates
+        - "ci_perc_90": percentile 90% CI (q05, q95)
+        - "samples": bootstrap statistic samples
+        - "block_size": the *global starting* block size used before per-building shrinking
     """
     rng = np.random.default_rng(seed)
 
-    # Heuristic block size if not provided: 2x median nearest-neighbor distance (all points)
+    # ------------------------------------------------------------------
+    # Choose a sensible starting block size (if not provided).
+    # Use within-building NN distances so far-apart buildings don't inflate block size.
+    # ------------------------------------------------------------------
     if block_size is None:
-        xy = df[[x_col, y_col]].to_numpy(float)
-        if xy.shape[0] < 3:
-            block_size = float(np.ptp(xy[:, 0]) + np.ptp(xy[:, 1]) + 1.0) if xy.size else 1.0
-        else:
+        nn_meds = []
+        for b, d in df.groupby(building_col, sort=False):
+            xy = d[[x_col, y_col]].to_numpy(float)
+            if xy.shape[0] < 3:
+                continue
             dx = xy[:, None, 0] - xy[None, :, 0]
             dy = xy[:, None, 1] - xy[None, :, 1]
             D = np.sqrt(dx * dx + dy * dy)
             np.fill_diagonal(D, np.inf)
             nn = np.min(D, axis=1)
-            block_size = float(2.0 * np.median(nn))
-            if not np.isfinite(block_size) or block_size <= 0:
-                block_size = 1.0
+            med = float(np.median(nn))
+            if np.isfinite(med) and med > 0:
+                nn_meds.append(med)
+
+        if len(nn_meds) > 0:
+            # 2x median NN distance is a standard "local neighborhood" scale.
+            block_size = float(2.0 * np.median(nn_meds))
+        else:
+            # Fallback: small positive scale from overall spread
+            xy = df[[x_col, y_col]].to_numpy(float)
+            block_size = float(max(np.ptp(xy[:, 0]) if xy.size else 1.0,
+                                   np.ptp(xy[:, 1]) if xy.size else 1.0,
+                                   1.0))
 
     block_size = float(block_size)
+    if not np.isfinite(block_size) or block_size <= 0:
+        block_size = 1.0
 
-    # Precompute per-building block labels
+    # Cache per-building dataframes for speed
     blds = df[building_col].unique()
+    per_building_rows: dict[str, pd.DataFrame] = {b: df[df[building_col] == b].copy() for b in blds}
+
+    # Precompute per-building block labels with adaptive shrinking to avoid degeneracy
     per_building_blocks: dict[str, np.ndarray] = {}
-    per_building_rows: dict[str, pd.DataFrame] = {}
     for b in blds:
-        d = df[df[building_col] == b].copy()
-        per_building_rows[b] = d
+        d = per_building_rows[b]
         cx = d[x_col].to_numpy(float)
         cy = d[y_col].to_numpy(float)
-        xmin, ymin = float(cx.min()), float(cy.min())
-        ix = np.floor((cx - xmin) / block_size).astype(int)
-        iy = np.floor((cy - ymin) / block_size).astype(int)
-        per_building_blocks[b] = (ix.astype(str) + ":" + iy.astype(str))
 
-    values = []
+        # Start from the global starting size, then shrink if needed for this building
+        bs = block_size
+        labels = None
+        for _ in range(max_shrink_iters + 1):
+            xmin, ymin = float(cx.min()), float(cy.min())
+            ix = np.floor((cx - xmin) / bs).astype(int)
+            iy = np.floor((cy - ymin) / bs).astype(int)
+            labels = (ix.astype(str) + ":" + iy.astype(str))
+            if len(np.unique(labels)) >= max(1, int(min_blocks_per_building)):
+                break
+            bs = max(bs / 2.0, 1e-9)  # shrink; keep positive
+        per_building_blocks[b] = labels
+
+    # Bootstrap
+    values = np.empty(B, float)
     for k in range(B):
         out_parts = []
         for b in blds:
@@ -245,18 +293,29 @@ def spatial_within_building_block_bootstrap(
             labels = per_building_blocks[b]
             u = np.unique(labels)
             nb = len(u)
+
+            # If still only one block, resample is necessarily degenerate for this building.
+            # We keep it as-is; overall variability comes from other buildings if present.
             take = rng.choice(u, size=nb, replace=True)
+
             parts = []
-            for j, bl in enumerate(take):
-                chunk = d.iloc[np.where(labels == bl)[0]].copy()
-                parts.append(chunk)
+            for bl in take:
+                rows = np.where(labels == bl)[0]
+                if rows.size == 0:
+                    continue
+                parts.append(d.iloc[rows].copy())
+            if len(parts) == 0:
+                parts = [d.copy()]
+
             out_parts.append(pd.concat(parts, axis=0, ignore_index=True))
+
         out = pd.concat(out_parts, axis=0, ignore_index=True)
-        values.append(float(fit_fn(out)))
+        values[k] = float(fit_fn(out))
 
     arr = np.asarray(values, dtype=float)
     ci = (float(np.quantile(arr, 0.05)), float(np.quantile(arr, 0.95)))
-    return {"B": B, "ci_perc_90": ci, "samples": arr, "block_size": block_size}
+    return {"B": int(B), "ci_perc_90": ci, "samples": arr, "block_size": float(block_size)}
+
 
 def iid_bootstrap_ci_mean(df: pd.DataFrame, y: str, B: int = 800, alpha: float = 0.05, seed: int = 42):
     """IID (rows) bootstrap CI for mean(y)."""
@@ -299,51 +358,66 @@ def spatiotemporal_time_block_bootstrap_ci_mean(
     block_len: int = 5,
     seed: int = 42,
     circular: bool = True,
-):
-    """Time-block bootstrap CI for mean(y) for balanced-panel spatiotemporal data.
+    center: bool = True,
+) -> Dict:
+    """Time-block bootstrap for mean(y) for balanced spatiotemporal panels.
 
-    This is a *commensurate* nonparametric CI for spatiotemporal panels when you want to
-    preserve spatial dependence within each time slice while accounting for temporal
-    dependence across slices.
+    Statistical rationale
+    ---------------------
+    For spatiotemporal panels, observations at the same time index (a full spatial snapshot)
+    can be strongly spatially dependent, and snapshots can be serially dependent over time.
+    A standard nonparametric resampling approach is the *moving block bootstrap* over time
+    applied to the multivariate snapshot sequence (Lahiri, 2003): resample contiguous blocks
+    of time indices, and within each selected time index include *all spatial locations*.
 
-    Resampling scheme:
-      - Treat each time slice as one multivariate observation (all spatial locations at that time).
-      - Resample contiguous blocks of time indices (moving-block bootstrap) until length T is filled.
-      - For each bootstrap draw, compute the mean of y across the resampled time slices.
+    Centering
+    ---------
+    Percentile intervals from dependent bootstraps can become visibly "lopsided" when the
+    bootstrap distribution is shifted relative to the original estimator due to finite-sample
+    bias or mild nonstationarity. A common, defensible correction when the target estimand is
+    the overall mean is the *centered block bootstrap*: resample blocks of centered data
+    (y - ȳ) and then add back the original mean ȳ. This reduces artificial shifts in the
+    bootstrap distribution without imposing a parametric model.
 
-    Notes
-    -----
-    - This targets the uncertainty in the *overall mean* under serial dependence.
-    - It does not refit any covariance model (distribution-free).
-    - Requires a balanced panel: every time slice must contain the same number of rows.
+    Returns
+    -------
+    dict with keys:
+      - "B": bootstrap replicates
+      - "samples": bootstrap means
+      - "ci_perc": percentile CI (alpha, 1-alpha)
+      - "ci_basic": basic CI centered at the original mean
     """
     rng = np.random.default_rng(seed)
 
-    # Sort and group by time
     times = np.asarray(sorted(df[time].unique()))
-    T = len(times)
+    T = int(len(times))
     if T <= 1:
         yv = df[y].to_numpy(float)
         m = float(np.mean(yv)) if yv.size else float("nan")
-        return (m, m)
+        return {"B": int(B), "samples": np.asarray([m]), "ci_perc": (m, m), "ci_basic": (m, m)}
 
     groups = []
     sizes = []
     for t in times:
         g = df.loc[df[time] == t, y].to_numpy(float)
         groups.append(g)
-        sizes.append(len(g))
+        sizes.append(int(len(g)))
 
     if len(set(sizes)) != 1:
         raise ValueError("spatiotemporal_time_block_bootstrap_ci_mean requires a balanced panel (constant rows per time slice).")
 
-    S = sizes[0]
-    n_per_time = S
     block_len = int(max(1, min(int(block_len), T)))
-
-    boots = np.empty(B, float)
     nblocks = int(math.ceil(T / block_len))
-    for b in range(B):
+
+    # Centering for mean estimation
+    ybar = float(np.mean(np.concatenate(groups))) if center else 0.0
+    if center:
+        groups_c = [g - ybar for g in groups]
+    else:
+        groups_c = groups
+
+    boots = np.empty(int(B), float)
+    for b in range(int(B)):
         idx = []
         starts = rng.integers(0, T, size=nblocks)
         for s0 in starts:
@@ -357,9 +431,19 @@ def spatiotemporal_time_block_bootstrap_ci_mean(
                 break
         idx = idx[:T]
 
-        # concatenate full time slices and average
-        yb = np.concatenate([groups[i] for i in idx], axis=0)
-        boots[b] = float(np.mean(yb))
+        yb = np.concatenate([groups_c[i] for i in idx], axis=0)
+        boots[b] = float(np.mean(yb) + (ybar if center else 0.0))
 
     lo, hi = np.quantile(boots, [alpha, 1.0 - alpha])
-    return (float(min(lo, hi)), float(max(lo, hi)))
+    ci_perc = (float(min(lo, hi)), float(max(lo, hi)))
+
+    # Basic CI uses reflected quantiles around theta_hat (here ybar)
+    if center:
+        q_lo, q_hi = float(np.quantile(boots, alpha)), float(np.quantile(boots, 1.0 - alpha))
+        ci_basic = (float(2.0 * ybar - q_hi), float(2.0 * ybar - q_lo))
+        ci_basic = (float(min(ci_basic)), float(max(ci_basic)))
+    else:
+        ci_basic = ci_perc
+
+    return {"B": int(B), "samples": boots, "ci_perc": ci_perc, "ci_basic": ci_basic}
+

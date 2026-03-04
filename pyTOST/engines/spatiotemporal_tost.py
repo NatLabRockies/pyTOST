@@ -159,6 +159,8 @@ class SpatioTemporalConfig:
     mu_timeblock_center: bool = True
     # If True, center each bootstrap resample to match the original sample mean before fitting.
     # This reduces spurious one-sided percentile intervals under finite-sample block resampling.
+    mu_timeblock_ci_style: Literal["basic", "percentile"] = "basic"
+    # CI construction from bootstrap samples: "basic" is bias-reducing and typically less lopsided than percentile.
     mu_timeblock_adapt_by_phi: bool = True
     mu_timeblock_L_factor: float = 2.0
     mu_timeblock_refit_cov: bool = False
@@ -504,10 +506,18 @@ class SpatioTemporalTOST:
                         yb = yb - float(np.mean(yb)) + float(np.mean(y))
                     mu_star[b] = float(w @ yb)
 
-                ci_low = float(np.quantile(mu_star, alpha))
-                ci_high = float(np.quantile(mu_star, 1.0 - alpha))
+                q_lo = float(np.quantile(mu_star, alpha))
+                q_hi = float(np.quantile(mu_star, 1.0 - alpha))
+                if self.config.mu_timeblock_ci_style == "basic":
+                    # Basic bootstrap CI: reflects quantiles around the original point estimate.
+                    # This is a standard bias-reducing alternative to percentile intervals and is
+                    # typically less "lopsided" under dependent/block resampling.
+                    ci_low = float(2.0 * mu_hat - q_hi)
+                    ci_high = float(2.0 * mu_hat - q_lo)
+                else:
+                    ci_low, ci_high = q_lo, q_hi
                 se = float(np.std(mu_star, ddof=1)) if B > 1 else float("nan")
-                ci_method = f"Time-block bootstrap CI (conditional; B={B}, L={Lblk})"
+                ci_method = f"Time-block bootstrap CI (conditional; style={self.config.mu_timeblock_ci_style}; B={B}, L={Lblk})"
 
             else:
                 # Commensurate bootstrap: refit the joint ML covariance each draw.
@@ -553,10 +563,18 @@ class SpatioTemporalTOST:
                     else:
                         mu_star[b] = float(optb.x[0])
 
-                ci_low = float(np.quantile(mu_star, alpha))
-                ci_high = float(np.quantile(mu_star, 1.0 - alpha))
+                q_lo = float(np.quantile(mu_star, alpha))
+                q_hi = float(np.quantile(mu_star, 1.0 - alpha))
+                if self.config.mu_timeblock_ci_style == "basic":
+                    # Basic bootstrap CI: reflects quantiles around the original point estimate.
+                    # This is a standard bias-reducing alternative to percentile intervals and is
+                    # typically less "lopsided" under dependent/block resampling.
+                    ci_low = float(2.0 * mu_hat - q_hi)
+                    ci_high = float(2.0 * mu_hat - q_lo)
+                else:
+                    ci_low, ci_high = q_lo, q_hi
                 se = float(np.std(mu_star, ddof=1)) if B > 1 else float("nan")
-                ci_method = f"Time-block bootstrap CI (refit ML; B={B}, L={Lblk}, maxiter={maxiter})"
+                ci_method = f"Time-block bootstrap CI (refit ML; style={self.config.mu_timeblock_ci_style}; B={B}, L={Lblk}, maxiter={maxiter})"
 
 
         else:
