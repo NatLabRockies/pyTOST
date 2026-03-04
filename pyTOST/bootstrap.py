@@ -22,6 +22,13 @@ def cluster_bootstrap(df: pd.DataFrame, y: str, cluster: str,
     Return percentile 90% CI (for α=0.05 equivalence).
     """
     rng = np.random.default_rng(seed)
+
+    # If every building has <=1 observation, a within-building spatial bootstrap is not identifiable.
+    # In that case, fall back to a building-level cluster bootstrap (non-degenerate and defensible).
+    counts = df.groupby(building_col, sort=False)[y].size().to_numpy()
+    if counts.size > 0 and int(np.max(counts)) <= 1:
+        return cluster_bootstrap(df, y=y, cluster=building_col, fit_fn=fit_fn, B=B, seed=seed)
+
     values = []
     groups = df[cluster].unique()
     G = len(groups)
@@ -294,8 +301,20 @@ def spatial_within_building_block_bootstrap(
             u = np.unique(labels)
             nb = len(u)
 
-            # If still only one block, resample is necessarily degenerate for this building.
-            # We keep it as-is; overall variability comes from other buildings if present.
+            # If we cannot form multiple spatial blocks within this building, fall back to
+            # an IID-within-building bootstrap for this building (a standard pragmatic choice).
+            # This avoids degenerate samples when a roof has too few locations to support
+            # meaningful spatial blocking.
+            if nb <= 1:
+                nrows = len(d)
+                if nrows >= 2:
+                    idx = rng.integers(0, nrows, size=nrows)
+                    out_parts.append(d.iloc[idx].copy().reset_index(drop=True))
+                    continue
+                else:
+                    out_parts.append(d.copy().reset_index(drop=True))
+                    continue
+
             take = rng.choice(u, size=nb, replace=True)
 
             parts = []
@@ -437,13 +456,29 @@ def spatiotemporal_time_block_bootstrap_ci_mean(
     lo, hi = np.quantile(boots, [alpha, 1.0 - alpha])
     ci_perc = (float(min(lo, hi)), float(max(lo, hi)))
 
-    # Basic CI uses reflected quantiles around theta_hat (here ybar)
+    # CI styles for dependent-data bootstraps:
+    # - Percentile: can be shifted ("lopsided") in finite samples with block resampling + refits.
+    # - Basic: reflects percentile quantiles around theta_hat; reduces first-order bias but can still
+    #   look shifted if the bootstrap distribution is strongly asymmetric.
+    # - Symmetric abs-deviation: uses the (1-alpha) quantile of |theta* - theta_hat| and reports
+    #   theta_hat ± q. This is a common, defensible choice when the goal is a stable two-sided
+    #   uncertainty band for a mean under dependence (it avoids artificial one-sidedness).
     if center:
         q_lo, q_hi = float(np.quantile(boots, alpha)), float(np.quantile(boots, 1.0 - alpha))
         ci_basic = (float(2.0 * ybar - q_hi), float(2.0 * ybar - q_lo))
         ci_basic = (float(min(ci_basic)), float(max(ci_basic)))
+
+        dev = np.abs(boots - ybar)
+        q = float(np.quantile(dev, 1.0 - alpha))
+        ci_sym = (float(ybar - q), float(ybar + q))
+        ci_sym = (float(min(ci_sym)), float(max(ci_sym)))
     else:
         ci_basic = ci_perc
+        dev = np.abs(boots - float(np.mean(boots)))
+        q = float(np.quantile(dev, 1.0 - alpha))
+        m0 = float(np.mean(boots))
+        ci_sym = (float(m0 - q), float(m0 + q))
+        ci_sym = (float(min(ci_sym)), float(max(ci_sym)))
 
-    return {"B": int(B), "samples": boots, "ci_perc": ci_perc, "ci_basic": ci_basic}
+    return {"B": int(B), "samples": boots, "ci_perc": ci_perc, "ci_basic": ci_basic, "ci_sym": ci_sym}
 

@@ -159,7 +159,7 @@ class SpatioTemporalConfig:
     mu_timeblock_center: bool = True
     # If True, center each bootstrap resample to match the original sample mean before fitting.
     # This reduces spurious one-sided percentile intervals under finite-sample block resampling.
-    mu_timeblock_ci_style: Literal["basic", "percentile"] = "basic"
+    mu_timeblock_ci_style: Literal["symmetric", "basic", "percentile"] = "symmetric"
     # CI construction from bootstrap samples: "basic" is bias-reducing and typically less lopsided than percentile.
     mu_timeblock_adapt_by_phi: bool = True
     mu_timeblock_L_factor: float = 2.0
@@ -508,7 +508,15 @@ class SpatioTemporalTOST:
 
                 q_lo = float(np.quantile(mu_star, alpha))
                 q_hi = float(np.quantile(mu_star, 1.0 - alpha))
-                if self.config.mu_timeblock_ci_style == "basic":
+                if self.config.mu_timeblock_ci_style == "symmetric":
+                    # Symmetric abs-deviation bootstrap CI: mu_hat ± q_{1-α}(|mu* - mu_hat|).
+                    # Common, defensible choice when percentile/basic intervals look shifted under
+                    # dependent/block resampling + covariance refits.
+                    dev = np.abs(mu_star - mu_hat)
+                    q = float(np.quantile(dev, 1.0 - alpha))
+                    ci_low = float(mu_hat - q)
+                    ci_high = float(mu_hat + q)
+                elif self.config.mu_timeblock_ci_style == "basic":
                     # Basic bootstrap CI: reflects quantiles around the original point estimate.
                     # This is a standard bias-reducing alternative to percentile intervals and is
                     # typically less "lopsided" under dependent/block resampling.
@@ -565,7 +573,15 @@ class SpatioTemporalTOST:
 
                 q_lo = float(np.quantile(mu_star, alpha))
                 q_hi = float(np.quantile(mu_star, 1.0 - alpha))
-                if self.config.mu_timeblock_ci_style == "basic":
+                if self.config.mu_timeblock_ci_style == "symmetric":
+                    # Symmetric abs-deviation bootstrap CI: mu_hat ± q_{1-α}(|mu* - mu_hat|).
+                    # Common, defensible choice when percentile/basic intervals look shifted under
+                    # dependent/block resampling + covariance refits.
+                    dev = np.abs(mu_star - mu_hat)
+                    q = float(np.quantile(dev, 1.0 - alpha))
+                    ci_low = float(mu_hat - q)
+                    ci_high = float(mu_hat + q)
+                elif self.config.mu_timeblock_ci_style == "basic":
                     # Basic bootstrap CI: reflects quantiles around the original point estimate.
                     # This is a standard bias-reducing alternative to percentile intervals and is
                     # typically less "lopsided" under dependent/block resampling.
