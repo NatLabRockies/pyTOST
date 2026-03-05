@@ -23,11 +23,6 @@ def cluster_bootstrap(df: pd.DataFrame, y: str, cluster: str,
     """
     rng = np.random.default_rng(seed)
 
-    # If every building has <=1 observation, a within-building spatial bootstrap is not identifiable.
-    # In that case, fall back to a building-level cluster bootstrap (non-degenerate and defensible).
-    counts = df.groupby(building_col, sort=False)[y].size().to_numpy()
-    if counts.size > 0 and int(np.max(counts)) <= 1:
-        return cluster_bootstrap(df, y=y, cluster=building_col, fit_fn=fit_fn, B=B, seed=seed)
 
     values = []
     groups = df[cluster].unique()
@@ -481,4 +476,3 @@ def spatiotemporal_time_block_bootstrap_ci_mean(
         ci_sym = (float(min(ci_sym)), float(max(ci_sym)))
 
     return {"B": int(B), "samples": boots, "ci_perc": ci_perc, "ci_basic": ci_basic, "ci_sym": ci_sym}
-
