@@ -1,0 +1,71 @@
+{
+  "ci_cluster": [
+    0.45692443187057347,
+    0.6373185785441902
+  ],
+  "ci_iid": [
+    0.5042633865744832,
+    0.5899796238402804
+  ],
+  "ci_spatial": [
+    NaN,
+    NaN
+  ],
+  "ci_spatiotemporal": [
+    0.41752196119424523,
+    1.440843050842156
+  ],
+  "ci_st_validate": [
+    0.6208935100486738,
+    1.1063490490201198
+  ],
+  "ci_temporal": [
+    0.46230171293777494,
+    0.6319412974769891
+  ],
+  "eq_cluster": true,
+  "eq_iid": true,
+  "eq_spatial": true,
+  "eq_spatiotemporal": false,
+  "eq_temporal": true,
+  "generator_kwargs": {
+    "delta": 0.9706665755707152,
+    "domain": [
+      -2.0,
+      2.0,
+      -2.0,
+      2.0
+    ],
+    "length_scale": 2.557763924844609,
+    "n_space": 23,
+    "n_time": 76,
+    "obs_sd": 0.19413360802462348,
+    "rho": 0.8700558526476226,
+    "seed": 1124,
+    "spatial_sd": 1.024054159986033
+  },
+  "mu_hat": 0.5471215052073818,
+  "notes": "confirm=True Bp=80 Bb=80 ratio=0.47 [screened: skipped spatial]",
+  "ok_pattern": true,
+  "panel_kwargs": {
+    "n_buildings": 25
+  },
+  "params": {
+    "delta": 0.9706665755707152,
+    "domain": [
+      -2.0,
+      2.0,
+      -2.0,
+      2.0
+    ],
+    "length_scale": 2.557763924844609,
+    "n_buildings": 25,
+    "n_space": 23,
+    "n_time": 76,
+    "obs_sd": 0.19413360802462348,
+    "rho": 0.8700558526476226,
+    "seed": 1124,
+    "spatial_sd": 1.024054159986033
+  },
+  "score": 4.516089638157703
+}
