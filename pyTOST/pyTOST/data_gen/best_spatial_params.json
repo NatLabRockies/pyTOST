@@ -1,0 +1,46 @@
+{
+  "ci_cluster": [
+    0.32195752346882717,
+    0.9562011351010835
+  ],
+  "ci_iid": [
+    0.4772462390113994,
+    0.8009124195585113
+  ],
+  "ci_spatial": [
+    0.5134060890176736,
+    1.0278908912969764
+  ],
+  "df_fingerprint": "cbcb9c1af026ed8d",
+  "eq_cluster": true,
+  "eq_iid": true,
+  "eq_spatial": false,
+  "module_versions": {
+    "pyTOST.engines.cluster_tost": "/Users/dhetting/src/pyTOST/pyTOST/engines/cluster_tost.py",
+    "pyTOST.engines.iid_tost": "/Users/dhetting/src/pyTOST/pyTOST/engines/iid_tost.py",
+    "pyTOST.engines.spatial_tost": "/Users/dhetting/src/pyTOST/pyTOST/engines/spatial_tost.py",
+    "pyTOST.workflow": "/Users/dhetting/src/pyTOST/pyTOST/workflow.py"
+  },
+  "mu_hat_cluster": 0.6390793292849554,
+  "mu_hat_iid": 0.6390793292849554,
+  "mu_hat_spatial": 0.7606322113841606,
+  "notes": "full eval (spatial run)",
+  "ok_pattern": true,
+  "params": {
+    "baseline_global": false,
+    "building_center_sd": 5.135484707440701,
+    "center_global_meas_field": false,
+    "cluster_radius": 0.7903255148059561,
+    "delta": 0.9521330650917972,
+    "field_sd": 0.3184604361108216,
+    "length_scale": 0.6868619190918087,
+    "meas_field_sd": 1.3607997099783367,
+    "meas_global": false,
+    "meas_shared": 0.7877758406029501,
+    "n_clusters": 10,
+    "nugget_sd": 0.09513296499237808,
+    "points_per_cluster": 8,
+    "seed": 1146
+  },
+  "score": 0.22210910870302358
+}
