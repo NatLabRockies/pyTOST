@@ -1,0 +1,39 @@
+{
+  "ci_cluster": [
+    0.9070265833474728,
+    0.9711825944727762
+  ],
+  "ci_iid": [
+    0.9066510800035088,
+    0.9715580978167402
+  ],
+  "ci_spatial": [
+    0.9066978190399209,
+    0.9715113590066113
+  ],
+  "ci_spatiotemporal": [
+    0.26443445596963777,
+    1.4921816967220476
+  ],
+  "eq_cluster": true,
+  "eq_iid": true,
+  "eq_spatial": true,
+  "eq_spatiotemporal": false,
+  "mu_hat_cluster": 0.9391045889101245,
+  "mu_hat_iid": 0.9391045889101245,
+  "mu_hat_spatial": 0.9391045889101225,
+  "mu_hat_spatiotemporal": 0.8783080763458427,
+  "notes": "Full eval",
+  "ok_pattern": true,
+  "params": {
+    "delta": 0.9519510056343431,
+    "length_scale": 11.331607149197897,
+    "n_space": 29,
+    "n_time": 18,
+    "obs_sd": 0.14593142813976095,
+    "rho": 0.9414443879036649,
+    "seed": 10125,
+    "spatial_sd": 1.4232993880098288
+  },
+  "score": 0.3921816967220476
+}
