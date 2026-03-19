@@ -1,193 +1,341 @@
 # pyTOST
 
-pyTOST is a dependency-aware equivalence testing toolkit built around the **Two One-Sided Tests (TOST)** procedure. It is designed for practical “are these two measurement processes effectively the same?” questions when data may be **independent (IID)**, **clustered** (e.g., building IDs), **spatially correlated** (coordinates), **temporally correlated** (time series), or **spatio-temporal**.
+pyTOST is a Python package for **dependence-aware equivalence testing with validation**. It applies the **two one-sided tests (TOST)** framework to paired differences when observations may be **IID**, **clustered**, **temporal**, **spatial**, or **spatiotemporal**.
 
-The core idea is unchanged from classical TOST: for each equivalence margin Δ, estimate the mean difference μ̂, compute a valid confidence interval for μ, and declare *equivalence* if the interval lies entirely within (−Δ, +Δ). What changes is *how the confidence interval is computed* when observations are dependent.
+Across all engines, pyTOST targets the same estimand: the **mean paired difference**. For each equivalence margin `Δ`, the package estimates the mean difference `μ̂`, constructs a confidence interval for `μ`, and declares **equivalence** when the interval lies entirely inside `(-Δ, Δ)`.
 
----
+The distinguishing feature of pyTOST is that the confidence interval is adapted to the assumed dependence structure rather than relying on an IID approximation when dependence is present.
+
+## Core features
+
+- **Common TOST workflow** across IID, clustered, temporal, spatial, and spatiotemporal settings
+- **Validation-oriented sensitivity analyses**, including heteroskedastic and robust-location checks
+- **Bootstrap sanity checks** for the mean paired difference
+- **Structured synthetic data generation** for benchmarking, testing, calibration, and reproducible examples
+- **Canonical demonstration notebook** showing the same synthetic dataset analyzed with all major engines
 
 ## Installation
 
-From a local clone or source directory:
+Once published to PyPI:
+
+```bash
+pip install pyTOST
+```
+
+For development from a local clone:
 
 ```bash
 pip install -e .
 ```
 
-Recommended dependencies:
-- numpy
-- pandas
-- scipy
-- statsmodels
-- matplotlib
-
-Optional (for PDF reporting):
-- pylatex
-- a LaTeX distribution (MacTeX / TinyTeX / TeX Live / MiKTeX)
-
----
-
-## Quick Start
-
-### 1. Prepare a CSV
-At minimum, your CSV must contain a column representing the **difference** to be tested (e.g., Artemis minus Exactus).
-
-Optional columns allow pyTOST to detect and correct for dependence.
-
-### 2. Run the pipeline
-```bash
-python run_tost.py \
-  --input data/my_diffs.csv \
-  --diff-col diff \
-  --margins 1 3 5 \
-  --alpha 0.05 \
-  --outdir outputs/example_run
-```
-
----
-
-## Running `run_tost.py`
-
-### Command-line Interface
+For local testing during development:
 
 ```bash
-python run_tost.py \
-  --input <data.csv> \
-  --diff-col <column> \
-  --margins <Δ1> <Δ2> ... \
-  --alpha <alpha> \
-  --outdir <output_dir> \
-  [--cluster-col <column>] \
-  [--x-col <column> --y-col <column>] \
-  [--time-col <column>] \
-  [--policy auto|force_iid|force_cluster|force_spatial|force_temporal|force_spatiotemporal] \
-  [--bootstrap-B <int>] \
-  [--seed <int>] \
-  [--report-deltas <Δ1> <Δ2> ...]
+pip install -e ".[test]"
 ```
 
----
+pyTOST currently requires **Python 3.10+** and relies on the scientific Python stack plus spatial tooling. Because `rpy2` is a declared runtime dependency, a fully fresh installation also requires a working **R** installation that `rpy2` can bind to.
 
-## Input CSV Format
+pyTOST currently declares the following runtime dependencies:
 
-### Required
-- **diff** (or the name passed via `--diff-col`)  
-  Numeric difference per observation.
+- `numpy`
+- `pandas`
+- `scipy`
+- `statsmodels`
+- `matplotlib`
+- `nbformat`
+- `esda`
+- `libpysal`
+- `rpy2`
 
-Example:
-```csv
-diff
-0.8
--0.3
-1.1
-```
+Some optional functionality in the spatial engine becomes more complete when PySAL and R-related tooling are available, but the core library workflow remains `run_tost(...)`.
 
-### Optional (recommended)
+## What pyTOST expects
 
-| Column | Purpose |
-|------|--------|
-| `building_id` | Cluster identifier (use with `--cluster-col`) |
-| `x`, `y` | Spatial coordinates (use with `--x-col`, `--y-col`) |
-| `time` | Time index or datetime (use with `--time-col`) |
+pyTOST works with a `pandas.DataFrame` containing a paired-difference column. In the examples below we use:
 
-Full example:
-```csv
-building_id,x,y,time,diff
-B01,12.3,98.1,2025-01-01T10:00:00,0.7
-B01,12.6,97.9,2025-01-01T10:05:00,0.4
-B02,210.2,33.5,2025-01-01T10:00:00,1.2
-```
+- `diff`: paired difference to test
+- `cluster_id`: cluster identifier for grouped designs
+- `x`: x-coordinate
+- `ycoord`: y-coordinate
+- `time`: time index
 
----
+These names are only conventions used in the documentation. The API accepts any column names you provide.
 
-## Output Structure
-
-The output directory contains:
-
-```
-outdir/
-├── summaries/
-│   ├── iid.csv
-│   ├── cluster.csv
-│   ├── spatial.csv
-│   └── bootstrap.csv
-├── diagnostics/
-│   └── diagnostics.json
-├── figures/
-│   ├── ci_comparison.png
-│   ├── residuals.png
-│   └── acf.png
-└── report/
-    └── one_page_summary.pdf
-```
-
-Each summary table includes:
-- equivalence margin Δ
-- μ̂ (mean difference)
-- CI lower and upper bounds
-- equivalence decision (True / False)
-
----
-
-## How pyTOST Chooses the Method (Default: `policy=auto`)
-
-pyTOST evaluates diagnostics and selects the most appropriate TOST engine:
-
-1. **IID TOST** – no detected dependence  
-2. **Cluster-aware TOST** – intra-cluster correlation detected  
-3. **Spatial TOST** – spatial autocorrelation detected  
-4. **Temporal TOST** – serial correlation detected  
-5. **Spatio-temporal TOST** – both spatial and temporal dependence  
-
-Sensitivity analyses (heteroskedastic-robust and bootstrap) are always run for validation.
-
----
-
-## Using pyTOST as a Library
+## Quick start
 
 ```python
 import pandas as pd
-from pyTOST.workflow import run_dependency_aware_tost
-from pyTOST.report_onepager import one_page_report
+from pyTOST import run_tost, WorkflowOptions
 
-df = pd.read_csv("data/my_diffs.csv")
-
-res = run_dependency_aware_tost(
-    df=df,
-    diff_col="diff",
-    margins=[1, 3, 5],
-    alpha=0.05,
-    cluster_col="building_id",
-    x_col="x",
-    y_col="y",
-    time_col="time",
-    policy="auto",
-    bootstrap_B=500,
-    seed=42,
+df = pd.DataFrame(
+    {
+        "diff": [0.10, 0.18, 0.05, 0.12, 0.08, 0.15],
+        "cluster_id": ["A", "A", "B", "B", "C", "C"],
+    }
 )
 
-one_page_report(res, "outputs/summary.pdf")
+res = run_tost(
+    df,
+    y="diff",
+    margins=[0.5],
+    alpha=0.05,
+    engine="cluster",
+    cluster="cluster_id",
+    options=WorkflowOptions(
+        do_sensitivity=True,
+        bootstrap_B=500,
+        seed=42,
+    ),
+)
+
+print(res["primary"][["delta", "mu_hat", "ci_low", "ci_high", "equivalent"]])
 ```
 
----
+## Choosing an engine
 
-## Interpreting Results
+Choose the engine based on the dependence structure you want the interval to respect.
 
-- If IID TOST passes but dependency-aware TOST fails, trust the dependency-aware result.
-- If multiple dependency-aware methods disagree, prefer the most conservative (widest CI).
-- Bootstrap intervals act as a sanity check on analytic confidence intervals.
+### IID
 
----
+Use `engine="iid"` when rows can reasonably be treated as independent.
 
-## Troubleshooting
+```python
+res = run_tost(
+    df,
+    y="diff",
+    margins=[1.0],
+    engine="iid",
+)
+```
 
-- **PDF report fails:** Ensure LaTeX (`pdflatex`) is installed and on PATH.
-- **Spatial model errors:** Try `policy=force_cluster` as a conservative fallback.
-- **Time parsing issues:** Convert time to ISO 8601 or numeric index.
+### Cluster
 
----
+Use `engine="cluster"` when observations may be dependent within clusters but independent across clusters.
+
+```python
+res = run_tost(
+    df,
+    y="diff",
+    margins=[1.0],
+    engine="cluster",
+    cluster="cluster_id",
+)
+```
+
+### Temporal
+
+Use `engine="temporal"` when dependence is primarily along time.
+
+```python
+res = run_tost(
+    df,
+    y="diff",
+    margins=[1.0],
+    engine="temporal",
+    time="time",
+)
+```
+
+### Spatial
+
+Use `engine="spatial"` when paired differences are spatially correlated within clusters.
+
+```python
+from pyTOST import SpatialConfig
+
+res = run_tost(
+    df,
+    y="diff",
+    margins=[1.0],
+    engine="spatial",
+    cluster="cluster_id",
+    x="x",
+    ycoord="ycoord",
+    spatial_config=SpatialConfig(
+        nu_grid=(0.5, 1.5, 2.5),
+        verbose_diagnostics=False,
+    ),
+)
+```
+
+### Spatiotemporal
+
+Use `engine="spatiotemporal"` when dependence is joint in space and time.
+
+```python
+from pyTOST import SpatioTemporalConfig
+
+res = run_tost(
+    df,
+    y="diff",
+    margins=[1.0],
+    engine="spatiotemporal",
+    cluster="cluster_id",
+    time="time",
+    x="x",
+    ycoord="ycoord",
+    spatiotemporal_config=SpatioTemporalConfig(
+        nu_grid=(0.5, 1.5, 2.5),
+        verbose_diagnostics=False,
+    ),
+)
+```
+
+## Interpreting results
+
+For each margin `Δ`, pyTOST reports a confidence interval for the mean paired difference `μ`.
+
+- If the interval lies entirely inside `(-Δ, Δ)`, pyTOST declares **equivalence**.
+- If the interval crosses either margin, pyTOST does **not** declare equivalence.
+- Wider intervals under clustered, temporal, spatial, or spatiotemporal models are often expected and can be more defensible than an IID interval that ignores dependence.
+
+In practice:
+
+- treat the selected engine’s `primary` result as the main inference
+- use `sensitivity` results to assess whether the conclusion is fragile to modeling choices
+- use the `bootstrap` result as a validation-oriented sanity check on uncertainty
+
+## What `run_tost(...)` returns
+
+`run_tost(...)` returns a dictionary with:
+
+- `engine`: the engine that was run
+- `primary`: the main result table for the selected engine
+- `sensitivity`: optional sensitivity-analysis result tables
+- `bootstrap`: optional validation bootstrap summary
+
+The `primary` table typically includes:
+
+- `delta`: equivalence margin
+- `mu_hat`: estimated mean paired difference
+- `ci_low`, `ci_high`: confidence interval bounds
+- `equivalent`: whether the CI is entirely inside `(-Δ, Δ)`
+
+## Sensitivity analyses and validation
+
+The workflow can optionally include:
+
+- heteroskedastic-robust inference
+- robust-location equivalence checks
+- bootstrap validation for the mean paired difference
+
+These are controlled through `WorkflowOptions`:
+
+```python
+from pyTOST import WorkflowOptions
+
+options = WorkflowOptions(
+    do_sensitivity=True,
+    bootstrap_B=500,
+    robust_location_B=100,
+    robust_location_block_len=5,
+    robust_location_stat="median",
+    seed=42,
+    spatial_block_size=1.0,
+)
+```
+
+Then pass `options=options` into `run_tost(...)`.
+
+## Synthetic data generation
+
+pyTOST includes structured synthetic data generators for reproducible benchmarking, testing, calibration, and examples. These utilities are ancillary to the inference engines but are part of the package and are used in the demonstration notebook and test plan.
+
+Current generators live in:
+
+- `pyTOST.data_gen.synthetic_tost_data`
+- `pyTOST.data_gen.params_io`
+
+Example imports:
+
+```python
+from pyTOST.data_gen.synthetic_tost_data import (
+    generate_iid,
+    generate_iid_grouped,
+    generate_cluster_groups,
+    generate_spatial_clusters,
+    generate_temporal_ar1,
+    generate_spatiotemporal,
+)
+from pyTOST.data_gen.params_io import load_params
+```
+
+These generators support settings such as:
+
+- IID paired samples
+- grouped or clustered dependence
+- AR(1) temporal dependence
+- spatial Matérn-correlated data
+- separable spatiotemporal dependence
+
+## Canonical example notebook
+
+The repository includes a demonstration notebook:
+
+- `pyTOST_demo.ipynb`
+
+This notebook is intended to be the canonical worked example. It uses synthetic data to show how to:
+
+1. generate or load a structured synthetic example,
+2. construct a paired-difference analysis table,
+3. run the IID, cluster, temporal, spatial, and spatiotemporal engines,
+4. compare confidence intervals and equivalence decisions, and
+5. interpret differences in uncertainty across engines.
+
+## Public API
+
+The main public imports are:
+
+```python
+from pyTOST import (
+    run_tost,
+    WorkflowOptions,
+    IIDTOST,
+    ClusterTOST,
+    TemporalTOST,
+    SpatialTOST,
+    SpatialConfig,
+    SpatioTemporalTOST,
+    SpatioTemporalConfig,
+    HeteroskedasticTOST,
+    RobustLocationTOST,
+)
+```
+
+For most users, the recommended entry point is:
+
+```python
+from pyTOST import run_tost
+```
+
+## Documentation conventions
+
+In the examples and documentation:
+
+- `cluster_id` is the generic grouped-data identifier
+- `diff` is the paired-difference column
+- `x` and `ycoord` are coordinate columns
+- `time` is the temporal index
+
+These are example names only. The package does not require these exact column names.
+
+
+## Contributing and support
+
+Please use the repository issue tracker to:
+
+- report bugs and installation issues,
+- ask usage questions,
+- request features, or
+- discuss documentation improvements.
+
+See `CONTRIBUTING.md` for the recommended development workflow and local test commands.
+
+## Development status
+
+pyTOST is being prepared for open-source release and JOSS submission as a library-first package for dependence-aware equivalence testing with validation.
 
 ## Citation
 
-If you use pyTOST in published work, please cite the accompanying technical report and foundational references for TOST, robust inference, and spatial/temporal modeling. See `ref.bib` for canonical citations.
-
+If you use pyTOST in research, please cite the accompanying JOSS paper once available.

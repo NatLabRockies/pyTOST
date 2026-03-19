@@ -1,12 +1,15 @@
-"""
-bootstrap.py
-============
-Cluster/bootstrap utilities for validation CIs.
+"""Bootstrap utilities for validation confidence intervals.
+
+This module provides bootstrap routines for independent, clustered,
+spatial, temporal, and spatiotemporal paired-difference settings used by
+:mod:`pyTOST` validation workflows.
 
 References
 ----------
-- Davison & Hinkley (1997) Bootstrap Methods and Their Application.
-- Lahiri (2003) Resampling Methods for Dependent Data.
+Davison, A. C., and Hinkley, D. V. (1997).
+    *Bootstrap Methods and Their Application*.
+Lahiri, S. N. (2003).
+    *Resampling Methods for Dependent Data*.
 """
 
 from __future__ import annotations
@@ -23,21 +26,27 @@ def _grid_block_labels(
     y: np.ndarray,
     block_size: float,
 ) -> np.ndarray:
-    """
-    Assign points to simple rectangular grid blocks.
+    """Assign points to rectangular grid blocks.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        X coordinates of the points.
+    y : numpy.ndarray
+        Y coordinates of the points.
+    block_size : float
+        Width and height of each rectangular grid block.
 
     Returns
     -------
-    np.ndarray of dtype object
-        Labels like "ix:iy".
+    numpy.ndarray
+        Object array of block labels with entries of the form ``"ix:iy"``.
 
     Notes
     -----
-    We intentionally build labels with Python string formatting rather than
-    NumPy string-array addition. This avoids the UFuncTypeError that can occur
-    in some NumPy/Pandas builds when doing:
-
-        ix.astype(str) + ":" + iy.astype(str)
+    Labels are built with Python string formatting rather than NumPy
+    string-array addition to avoid ``UFuncTypeError`` in some NumPy and
+    pandas builds.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -59,9 +68,29 @@ def cluster_bootstrap(
     B: int = 200,
     seed: int = 42,
 ) -> Dict:
-    """
-    Resample whole clusters with replacement; compute statistic via fit_fn.
-    Return percentile 90% CI (for α=0.05 equivalence).
+    """Bootstrap a statistic by resampling clusters.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input data frame.
+    y : str
+        Name of the paired-difference column.
+    cluster : str
+        Column identifying clusters to resample.
+    fit_fn : callable
+        Function applied to each bootstrap resample. It must accept a
+        :class:`pandas.DataFrame` and return a scalar statistic.
+    B : int, default=200
+        Number of bootstrap replicates.
+    seed : int, default=42
+        Seed for the random number generator.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the number of replicates, the percentile 90%
+        confidence interval, and the bootstrap samples.
     """
     rng = np.random.default_rng(seed)
 
@@ -96,31 +125,44 @@ def spatial_block_bootstrap(
     block_size: float | None = None,
     blocks: pd.Series | None = None,
 ) -> Dict:
-    """Spatial block bootstrap for paired-difference data.
+    """Run a spatial block bootstrap across clusters.
 
-    Purpose
-    -------
-    ``cluster_bootstrap`` is appropriate when clusters are independent. When the
-    data-generating mechanism includes *cross-building* spatial dependence (e.g.
-    a global field defined over building centroids), resampling buildings IID can
-    understate uncertainty. This routine performs a simple *grid block bootstrap*
-    over building centroids:
-
-    1) Compute a centroid for each building.
-    2) Assign each centroid to a grid cell (block).
-    3) Resample blocks (cells) with replacement; include all buildings in selected
-       blocks, duplicating buildings when blocks repeat.
-
-    Notes
-    -----
-    - The bootstrap unit is the *block* (not the point, not the building), so the
-      resample preserves within-block cross-building dependence.
-    - Duplicated buildings are relabeled to avoid conflating multiple draws.
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input paired-difference data.
+    y : str
+        Name of the paired-difference column.
+    building_col : str
+        Column identifying clusters or buildings.
+    x_col : str
+        Name of the x-coordinate column.
+    y_col : str
+        Name of the y-coordinate column.
+    fit_fn : callable
+        Function applied to each bootstrap resample. It must accept a
+        :class:`pandas.DataFrame` and return a scalar statistic.
+    B : int, default=200
+        Number of bootstrap replicates.
+    seed : int, default=42
+        Seed for the random number generator.
+    block_size : float or None, default=None
+        Spatial block size. If ``None``, a heuristic based on centroid
+        nearest-neighbor distances is used.
+    blocks : pandas.Series or None, default=None
+        Optional precomputed block labels indexed by cluster identifier.
 
     Returns
     -------
     dict
-        {"B": B, "ci_perc_90": (q05, q95), "samples": arr, "block_size": ...}
+        Dictionary containing the number of replicates, the percentile 90%
+        confidence interval, the bootstrap samples, and the block size used.
+
+    Notes
+    -----
+    This routine resamples spatial blocks of cluster centroids rather than
+    individual rows so that cross-cluster spatial dependence can be preserved
+    within resampled blocks.
     """
     rng = np.random.default_rng(seed)
 
@@ -207,38 +249,49 @@ def spatial_within_building_block_bootstrap(
     min_blocks_per_building: int = 4,
     max_shrink_iters: int = 8,
 ) -> Dict:
-    """Spatial block bootstrap *within each building*.
+    """Run a within-cluster spatial block bootstrap.
 
-    Why this exists
-    ---------------
-    A building-level cluster bootstrap is appropriate when buildings are independent and
-    within-building observations are IID. When locations on a roof/building are spatially
-    dependent, IID resampling within a building can understate uncertainty. A common and
-    defensible nonparametric remedy is a *spatial block bootstrap*, where the resampling
-    unit is a spatial block large enough to preserve local dependence (Lahiri, 2003).
-
-    This implementation uses a simple grid-based block bootstrap separately within each
-    building:
-      1) Assign each point to a within-building grid cell (block).
-      2) Resample blocks with replacement *within each building*.
-      3) Concatenate resampled buildings and compute the statistic via ``fit_fn``.
-
-    Practical safeguards
-    --------------------
-    A frequent failure mode in synthetic demos is choosing a block size so large that each
-    building collapses to a single block, producing *degenerate* bootstrap samples and a
-    CI of the form [x, x]. To avoid this, when ``block_size`` is not supplied we estimate
-    it from *within-building* nearest-neighbor distances (not global distances across
-    buildings), and we adaptively shrink it per building until at least
-    ``min_blocks_per_building`` unique blocks are present (or we hit ``max_shrink_iters``).
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input paired-difference data.
+    y : str
+        Name of the paired-difference column.
+    building_col : str
+        Column identifying clusters or buildings.
+    x_col : str
+        Name of the x-coordinate column.
+    y_col : str
+        Name of the y-coordinate column.
+    fit_fn : callable
+        Function applied to each bootstrap resample. It must accept a
+        :class:`pandas.DataFrame` and return a scalar statistic.
+    B : int, default=200
+        Number of bootstrap replicates.
+    seed : int, default=42
+        Seed for the random number generator.
+    block_size : float or None, default=None
+        Starting block size for within-cluster resampling. If ``None``, a
+        heuristic based on within-cluster nearest-neighbor distances is used.
+    min_blocks_per_building : int, default=4
+        Minimum target number of unique blocks within each cluster when
+        adaptively shrinking the block size.
+    max_shrink_iters : int, default=8
+        Maximum number of block-size halving iterations used to avoid
+        degenerate single-block resamples.
 
     Returns
     -------
-    dict with keys:
-        - "B": bootstrap replicates
-        - "ci_perc_90": percentile 90% CI (q05, q95)
-        - "samples": bootstrap statistic samples
-        - "block_size": the global starting block size used before per-building shrinking
+    dict
+        Dictionary containing the number of replicates, the percentile 90%
+        confidence interval, the bootstrap samples, and the starting block
+        size used.
+
+    Notes
+    -----
+    This routine resamples spatial blocks separately within each cluster so
+    that local spatial dependence is retained without assuming independence
+    among rows inside a cluster.
     """
     rng = np.random.default_rng(seed)
 
@@ -350,7 +403,26 @@ def iid_bootstrap_ci_mean(
     alpha: float = 0.05,
     seed: int = 42,
 ):
-    """IID (rows) bootstrap CI for mean(y)."""
+    """Compute an IID bootstrap confidence interval for the mean.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input data frame.
+    y : str
+        Name of the column whose mean is bootstrapped.
+    B : int, default=800
+        Number of bootstrap replicates.
+    alpha : float, default=0.05
+        Lower-tail probability used to form the percentile interval.
+    seed : int, default=42
+        Seed for the random number generator.
+
+    Returns
+    -------
+    tuple of float
+        Lower and upper percentile bootstrap confidence limits for the mean.
+    """
     rng = np.random.default_rng(seed)
     yv = df[y].to_numpy(dtype=float)
     n = len(yv)
@@ -373,7 +445,30 @@ def moving_block_bootstrap_ci_mean(
     block_len: int = 10,
     seed: int = 42,
 ):
-    """Moving-block bootstrap CI for mean(y) for serial dependence."""
+    """Compute a moving-block bootstrap interval for a temporal mean.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input data frame.
+    y : str
+        Name of the column whose mean is bootstrapped.
+    time : str
+        Name of the time-ordering column.
+    B : int, default=800
+        Number of bootstrap replicates.
+    alpha : float, default=0.05
+        Lower-tail probability used to form the percentile interval.
+    block_len : int, default=10
+        Length of each moving block.
+    seed : int, default=42
+        Seed for the random number generator.
+
+    Returns
+    -------
+    tuple of float
+        Lower and upper bootstrap confidence limits for the mean.
+    """
     rng = np.random.default_rng(seed)
     df2 = df.sort_values(time).reset_index(drop=True)
     yv = df2[y].to_numpy(dtype=float)
@@ -404,7 +499,42 @@ def spatiotemporal_time_block_bootstrap_ci_mean(
     circular: bool = True,
     center: bool = True,
 ) -> Dict:
-    """Time-block bootstrap for mean(y) for balanced spatiotemporal panels."""
+    """Bootstrap the mean of a balanced spatiotemporal panel by time blocks.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input data frame.
+    y : str
+        Name of the paired-difference column.
+    time : str
+        Name of the time-index column.
+    B : int, default=800
+        Number of bootstrap replicates.
+    alpha : float, default=0.05
+        Lower-tail probability used to form the percentile interval.
+    block_len : int, default=5
+        Number of consecutive time slices in each bootstrap block.
+    seed : int, default=42
+        Seed for the random number generator.
+    circular : bool, default=True
+        If ``True``, use circular wrapping when a block reaches the end of the
+        time axis.
+    center : bool, default=True
+        If ``True``, center each time-slice group before resampling and add the
+        overall mean back afterward.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the number of replicates, the bootstrap samples,
+        and percentile, basic, and symmetric confidence intervals.
+
+    Raises
+    ------
+    ValueError
+        If the panel is unbalanced across time slices.
+    """
     rng = np.random.default_rng(seed)
 
     times = np.asarray(sorted(df[time].unique()))

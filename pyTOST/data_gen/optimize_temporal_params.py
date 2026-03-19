@@ -1,15 +1,19 @@
-"""
-Optimization routine to find synthetic *temporal* data-generation parameters that yield:
+"""Utilities for tuning temporal synthetic data-generation parameters.
 
-  - IID engine:       TOST passes at margin delta=1
-  - Cluster engine:   TOST passes at margin delta=1
-  - Temporal engine:  TOST fails at margin delta=1
+This module performs a stochastic search over the temporal generator parameter
+space to identify scenarios in which equivalence decisions differ across
+engines. The target pattern is:
 
-Assumptions / conventions
--------------------------
-- The paired design is represented in long form with `arm in {"A","B"}` and `sample_id`.
-- We evaluate engines on the paired difference: diff = y_B - y_A.
-- We treat `series_id` (if present) as the cluster label for ClusterTOST.
+- the IID engine declares equivalence at the specified margin,
+- the clustered engine declares equivalence at the specified margin, and
+- the temporal engine does not declare equivalence at the specified margin.
+
+Notes
+-----
+The paired design is represented in long format with one row per arm and
+observation. Paired differences are computed as ``y_B - y_A`` after pivoting to
+wide format. When present, ``series_id`` is treated as the grouping variable for
+clustered inference.
 """
 
 from __future__ import annotations
@@ -31,6 +35,23 @@ from ..engines import temporal_tost
 
 @dataclass
 class SearchSpace:
+    """Parameter bounds used to sample candidate temporal generator settings.
+
+    Attributes
+    ----------
+    n_time_min, n_time_max : int
+        Inclusive bounds for the number of time points per simulated series.
+    series_min, series_max : int
+        Inclusive bounds for the number of series generated per arm.
+    rho_min, rho_max : float
+        Bounds for the AR(1) correlation parameter.
+    process_sd_min, process_sd_max : float
+        Bounds for the latent process standard deviation.
+    obs_sd_min, obs_sd_max : float
+        Bounds for the observation-noise standard deviation.
+    delta_true_min, delta_true_max : float
+        Bounds for the true mean paired difference used to generate data.
+    """
     # Discrete / integer
     n_time_min: int = 60
     n_time_max: int = 480
@@ -52,6 +73,18 @@ class SearchSpace:
     delta_true_max: float = 0.995
 
     def sample(self, rng: np.random.Generator) -> Dict[str, Any]:
+        """Draw one candidate parameter set from the search space.
+
+        Parameters
+        ----------
+        rng : numpy.random.Generator
+            Random number generator used to sample parameter values.
+
+        Returns
+        -------
+        dict of str to Any
+            Dictionary of generator arguments for temporal synthetic data.
+        """
         d: Dict[str, Any] = {}
         d["n_time"] = int(rng.integers(self.n_time_min, self.n_time_max + 1))
         d["series_per_arm"] = int(rng.integers(self.series_min, self.series_max + 1))
@@ -66,6 +99,26 @@ class SearchSpace:
 
 @dataclass
 class EvalResult:
+    """Container for the outcome of a single temporal-parameter evaluation.
+
+    Attributes
+    ----------
+    ok_pattern : bool
+        Whether the evaluated parameter set produced the target engine pattern.
+    score : float
+        Scalar objective value used to rank candidate parameter sets.
+    params : dict of str to Any
+        Parameter values used for data generation and evaluation.
+    ci_iid, ci_cluster, ci_temporal : tuple of float
+        Confidence interval bounds from the IID, clustered, and temporal
+        engines, respectively.
+    eq_iid, eq_cluster, eq_temporal : bool
+        Equivalence decisions for the IID, clustered, and temporal engines.
+    mu_hat_iid, mu_hat_cluster, mu_hat_temporal : float
+        Estimated mean paired differences from each engine.
+    notes : str, default=""
+        Free-form notes, typically used to record exceptions during search.
+    """
     ok_pattern: bool
     score: float
     params: Dict[str, Any]
@@ -82,11 +135,26 @@ class EvalResult:
 
 
 def _make_diff_df(df_long: pd.DataFrame) -> pd.DataFrame:
-    """
-    Convert tidy long A/B rows to a per-observation diff dataframe.
+    """Convert paired long-format observations to a difference table.
 
-    Expects columns: sample_id, arm in {'A','B'}, y, t
-    Optional: series_id (used as cluster id for ClusterTOST)
+    Parameters
+    ----------
+    df_long : pandas.DataFrame
+        Long-format paired data with columns ``sample_id``, ``arm``, ``y``, and
+        ``t``. If present, ``series_id`` is carried forward and used as the
+        grouping variable for clustered inference.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Data frame with columns ``sample_id``, ``group_id``, ``t``, and
+        ``diff``, where ``diff`` is computed as ``B - A``.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing or the long-format data cannot be
+        pivoted into paired ``A`` and ``B`` observations.
     """
     req = {"sample_id", "arm", "y", "t"}
     missing = sorted(req - set(df_long.columns))
@@ -113,6 +181,25 @@ def _make_diff_df(df_long: pd.DataFrame) -> pd.DataFrame:
 
 
 def _run_one(df_diff: pd.DataFrame, alpha: float, margin: float, hac_lags: int) -> EvalResult:
+    """Evaluate one difference table with the IID, cluster, and temporal engines.
+
+    Parameters
+    ----------
+    df_diff : pandas.DataFrame
+        Paired-difference analysis table.
+    alpha : float
+        Significance level used to form the corresponding confidence interval.
+    margin : float
+        Equivalence margin.
+    hac_lags : int
+        Number of lags used by the HAC temporal engine.
+
+    Returns
+    -------
+    EvalResult
+        Evaluation summary containing engine-specific estimates, confidence
+        intervals, and equivalence decisions.
+    """
     # IID
     iid = iid_tost.IIDTOST(y="diff")
     r_iid = iid.fit(df_diff, alpha=alpha, margins=[margin]).iloc[0]
@@ -180,9 +267,32 @@ def evaluate_params(
     margin: float = 1.0,
     hac_lags: int = 8,
 ) -> EvalResult:
-    """
-    Generate AR(1) temporal data via `synthetic_tost_data.generate_temporal_ar1` and
-    evaluate the desired pass/fail pattern at the given margin.
+    """Generate temporal synthetic data and evaluate the engine pattern.
+
+    Parameters
+    ----------
+    params : dict of str to Any
+        Candidate generator arguments. Only keys accepted by
+        :func:`pyTOST.data_gen.synthetic_tost_data.generate_temporal_ar1` are
+        forwarded.
+    seed : int, default=0
+        Random seed used for synthetic data generation.
+    alpha : float, default=0.05
+        Significance level used to form the corresponding confidence interval.
+    margin : float, default=1.0
+        Equivalence margin.
+    hac_lags : int, default=8
+        Number of lags used by the HAC temporal engine.
+
+    Returns
+    -------
+    EvalResult
+        Evaluation result for the supplied parameter set.
+
+    Raises
+    ------
+    ValueError
+        If required generator arguments are missing.
     """
     gen = synthetic_tost_data.generate_temporal_ar1
     sig = inspect.signature(gen)
@@ -218,12 +328,32 @@ def search(
     space: Optional[SearchSpace] = None,
     verbose_every: int = 25,
 ) -> Tuple[EvalResult, List[EvalResult]]:
-    """
-    Stochastic search over temporal generator parameters.
+    """Search for temporal parameters that create the target engine pattern.
+
+    Parameters
+    ----------
+    seed : int, default=0
+        Random seed controlling search-space sampling.
+    n_iter : int, default=600
+        Maximum number of parameter sets to evaluate.
+    alpha : float, default=0.05
+        Significance level used to form the corresponding confidence interval.
+    margin : float, default=1.0
+        Equivalence margin.
+    hac_lags : int, default=8
+        Number of lags used by the HAC temporal engine.
+    space : SearchSpace or None, default=None
+        Search space used to generate candidate parameter values. If ``None``, a
+        default :class:`SearchSpace` is used.
+    verbose_every : int, default=25
+        Frequency, in iterations, for printing progress updates.
 
     Returns
     -------
-    best, history
+    best : EvalResult
+        Best result encountered during the search.
+    history : list of EvalResult
+        Evaluation history in the order considered.
     """
     rng = np.random.default_rng(seed)
     space = space or SearchSpace()

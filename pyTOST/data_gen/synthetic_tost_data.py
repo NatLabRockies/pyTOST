@@ -1,48 +1,15 @@
-"""
-Synthetic data generators for TOST pipelines.
+"""Synthetic data generators for dependence-aware TOST examples and tests.
 
-This module creates paired samples (arm A vs arm B) under several dependence structures
-commonly encountered in practice:
+This module provides utilities for constructing paired arm A and arm B datasets
+under several dependence structures, including IID, grouped, spatial,
+temporal, and spatiotemporal settings. The generators are intended for
+benchmarking, regression testing, calibration studies, and worked examples.
 
-1) IID, no groupings
-2) IID with groupings (labels present; no correlation) and optional random effects
-3) Spatially dependent clusters (within-cluster spatial correlation)
-4) Temporally dependent series (AR(1) correlation)
-5) Spatio-temporal process (separable space × time covariance)
-
-Each generator returns a tidy pandas.DataFrame with columns:
-    - sample_id : int index within a scenario
-    - arm       : "A" or "B"
-    - y         : observed response
-    - mu        : latent mean (pre-noise, post-arm effect)
-    - baseline  : baseline latent mean (shared before arm effect)
-    - effect    : arm-specific shift applied to baseline (A: 0; B: delta)
-    - group_id  : optional grouping label
-    - x, y_sp   : spatial coordinates (if applicable)
-    - t         : integer time index (if applicable)
-
-Design goals
-------------
-- Deterministic reproducibility via an explicit `rng` (numpy Generator) or `seed`.
-- Explicit control of the *true* between-arm effect size (constant or function of space/time/group).
-- Control of marginal variance and dependence strength via interpretable params.
-- Return metadata with the ground-truth settings for testing and regression checks.
-
-Examples
---------
->>> from synthetic_tost_data import (
-...     generate_iid, generate_iid_grouped, generate_spatial_clusters,
-...     generate_temporal_ar1, generate_spatiotemporal
-... )
->>> df, meta = generate_iid(n=1000, delta=0.2, sigma=1.0, seed=42)
->>> df.head()
-
-Notes
------
-- All functions create *paired* samples for arms A and B under the same latent process.
-- You can pass a callable `delta_fn` to create spatially/temporally varying treatment effects.
-- For numerical stability, covariances include a tiny jitter (1e-8) on the diagonal.
-
+Each generator returns a tidy ``pandas.DataFrame`` together with a metadata
+``dict`` describing the ground-truth settings used to generate the data.
+Common columns include ``sample_id``, ``arm``, ``y``, ``mu``, ``baseline``,
+``effect``, and, where applicable, grouping, coordinate, or time-index
+columns.
 """
 
 from __future__ import annotations
@@ -62,27 +29,22 @@ Array = np.ndarray
 # -----------------------
 
 def rbf_cov(coords: Array, length_scale: float, variance: float = 1.0) -> Array:
-    """Build a squared-exponential (RBF) covariance matrix.
-
-    What it does
-    ------------
-    For coordinates ``x_1, …, x_n`` in ℝ^d, returns the matrix
-    ``K[i,j] = variance * exp(-0.5 * ||x_i - x_j||^2 / length_scale^2)`` with a small
-    diagonal jitter for numerical stability.
+    """Construct a squared-exponential covariance matrix.
 
     Parameters
     ----------
-    coords : array-like of shape (n, d)
-        Coordinates of points.
+    coords : ndarray of shape (n, d)
+        Coordinates for the observation locations.
     length_scale : float
-        Positive length-scale; larger values imply smoother/long-range correlation.
-    variance : float, default 1.0
+        Positive range parameter controlling correlation decay with distance.
+    variance : float, default=1.0
         Marginal variance of the process.
 
     Returns
     -------
-    K : ndarray of shape (n, n)
-        Symmetric positive-definite covariance matrix.
+    ndarray of shape (n, n)
+        Covariance matrix with entries defined by the radial basis function
+        kernel and a small diagonal jitter for numerical stability.
     """
     coords = np.atleast_2d(coords)
     dists2 = np.sum((coords[:, None, :] - coords[None, :, :]) ** 2, axis=2)
@@ -92,26 +54,22 @@ def rbf_cov(coords: Array, length_scale: float, variance: float = 1.0) -> Array:
 
 
 def ar1_cov(n: int, rho: float, variance: float = 1.0) -> Array:
-    """Construct an AR(1) covariance matrix of size ``n``.
-
-    What it does
-    ------------
-    Returns ``K[i,j] = variance * rho**|i-j|`` for a stationary AR(1) process, with a
-    small diagonal jitter for stability.
+    """Construct an AR(1) covariance matrix.
 
     Parameters
     ----------
     n : int
-        Length of the time series.
+        Number of time points.
     rho : float
-        Autocorrelation parameter (|rho| < 1 recommended).
-    variance : float, default 1.0
+        AR(1) correlation parameter.
+    variance : float, default=1.0
         Marginal variance of the process.
 
     Returns
     -------
-    K : ndarray of shape (n, n)
-        AR(1) covariance matrix.
+    ndarray of shape (n, n)
+        AR(1) covariance matrix with a small diagonal jitter for numerical
+        stability.
     """
     idx = np.arange(n)
     d = np.abs(idx[:, None] - idx[None, :])
@@ -121,22 +79,19 @@ def ar1_cov(n: int, rho: float, variance: float = 1.0) -> Array:
 
 
 def safe_cholesky(K: Array) -> Array:
-    """Numerically robust Cholesky factorization.
-
-    What it does
-    ------------
-    Attempts ``np.linalg.cholesky(K)``; on failure, increases diagonal jitter and retries.
-    As a last resort, clamps negative eigenvalues to a minimum (1e-10) before factoring.
+    """Compute a numerically stable Cholesky factor.
 
     Parameters
     ----------
-    K : ndarray (n, n)
-        Symmetric (near) positive-definite matrix.
+    K : ndarray of shape (n, n)
+        Symmetric covariance-like matrix.
 
     Returns
     -------
-    L : ndarray (n, n)
-        Lower-triangular factor such that ``L @ L.T ≈ K``.
+    ndarray of shape (n, n)
+        Lower-triangular Cholesky factor. Additional diagonal jitter is added
+        adaptively if needed, and an eigenvalue-clamped fallback is used as a
+        last resort.
     """
     jitter = 0.0
     for _ in range(6):
@@ -157,27 +112,32 @@ def safe_cholesky(K: Array) -> Array:
 
 @dataclass
 class EffectSpec:
-    """Specification of the true between-arm effect.
+    """Specification of the true arm B minus arm A effect.
 
-    If `delta_fn` is provided, it overrides `delta` and returns an effect for each observation.
-    The effect is applied only to arm B; arm A gets effect 0.
+    Parameters
+    ----------
+    delta : float, default=0.0
+        Constant effect applied to arm B when ``delta_fn`` is not provided.
+    delta_fn : callable, optional
+        Function that maps an index dataframe to an array of per-observation
+        effects for arm B. When supplied, this overrides ``delta``.
     """
     delta: float = 0.0
     delta_fn: Optional[Callable[[pd.DataFrame], Array]] = None
 
     def compute(self, df_index: pd.DataFrame) -> Array:
-        """Compute the effect vector for an index DataFrame.
+        """Evaluate the effect specification on an index dataframe.
 
         Parameters
         ----------
         df_index : pandas.DataFrame
-            Index frame that may include columns used by ``delta_fn`` (e.g., ``x``,
-            ``y_sp``, ``t``, ``group_id``). For constant effects, only the row count is used.
+            Index dataframe passed to ``delta_fn`` when a callable effect is used.
+            Typical columns include grouping labels, coordinates, or time indices.
 
         Returns
         -------
-        effect : ndarray of shape (len(df_index),)
-            Effect applied to arm B at each observation.
+        ndarray of shape (len(df_index),)
+            Effect values applied to arm B for each indexed observation.
         """
         if self.delta_fn is not None:
             out = np.asarray(self.delta_fn(df_index), dtype=float)
@@ -188,10 +148,28 @@ class EffectSpec:
 
 @dataclass
 class ClusterEffectSpec:
-    """Effect specification for paired B-A mean difference."""
+    """Constant effect specification for grouped paired data.
+
+    Parameters
+    ----------
+    delta : float, default=0.0
+        Constant arm B minus arm A mean difference.
+    """
     delta: float = 0.0
 
     def compute(self, idx_df: pd.DataFrame) -> np.ndarray:
+        """Return a constant effect vector for the provided index dataframe.
+
+        Parameters
+        ----------
+        idx_df : pandas.DataFrame
+            Index dataframe used only for its number of rows.
+
+        Returns
+        -------
+        ndarray of shape (len(idx_df),)
+            Constant effect values equal to ``delta``.
+        """
         return np.full(len(idx_df), float(self.delta), dtype=float)
 
 
@@ -206,15 +184,26 @@ def generate_iid(
     seed: Optional[int] = None,
     effect: Optional[EffectSpec] = None,
 ) -> Tuple[pd.DataFrame, Dict]:
-    """Generate IID paired samples (A vs B) with Gaussian noise.
+    """Generate IID paired arm A and arm B samples.
 
     Parameters
     ----------
-    n : number of observations *per arm*
-    delta : constant shift applied to arm B (ignored if `effect` with delta_fn provided)
-    sigma : noise standard deviation
-    seed : RNG seed for reproducibility
-    effect : optional EffectSpec with custom delta_fn
+    n : int
+        Number of paired observations per arm.
+    delta : float, default=0.0
+        Constant shift applied to arm B when ``effect`` is not provided.
+    sigma : float, default=1.0
+        Observation-noise standard deviation.
+    seed : int, optional
+        Seed for the NumPy random number generator.
+    effect : EffectSpec, optional
+        Custom effect specification. When supplied, it overrides ``delta``.
+
+    Returns
+    -------
+    tuple of (pandas.DataFrame, dict)
+        Long-format paired dataset and metadata describing the generating
+        parameters.
     """
     rng = np.random.default_rng(seed)
     baseline = rng.normal(loc=0.0, scale=1.0, size=n)
@@ -256,17 +245,30 @@ def generate_iid_grouped(
     seed: Optional[int] = None,
     effect: Optional[EffectSpec] = None,
 ) -> Tuple[pd.DataFrame, Dict]:
-    """IID within observations but with group labels and optional group random intercepts.
+    """Generate grouped paired data with IID noise within rows.
 
     Parameters
     ----------
-    n_groups : number of groups (clusters)
-    n_per_group : observations per group *per arm*
-    delta : constant arm-B shift
-    sigma : iid noise SD
-    group_sd : SD of random intercept per group (0 disables random effects)
-    seed : RNG seed
-    effect : optional EffectSpec for custom per-observation delta
+    n_groups : int
+        Number of groups or clusters.
+    n_per_group : int
+        Number of paired observations per group and per arm.
+    delta : float, default=0.0
+        Constant shift applied to arm B when ``effect`` is not provided.
+    sigma : float, default=1.0
+        IID observation-noise standard deviation.
+    group_sd : float, default=0.0
+        Standard deviation of the shared group random intercept.
+    seed : int, optional
+        Seed for the NumPy random number generator.
+    effect : EffectSpec, optional
+        Custom effect specification. When supplied, it overrides ``delta``.
+
+    Returns
+    -------
+    tuple of (pandas.DataFrame, dict)
+        Long-format paired dataset and metadata describing the generating
+        parameters.
     """
     rng = np.random.default_rng(seed)
     group_ids = np.repeat(np.arange(n_groups), n_per_group)
@@ -323,37 +325,37 @@ def generate_cluster_groups(
     meas_group_sd: float = 0.0,
     meas_shared: float = 0.0,
 ) -> Tuple[pd.DataFrame, Dict]:
-    """
-    Generate paired A/B observations with group-level dependence in the paired difference.
+    """Generate grouped paired data with cluster-level dependence.
 
     Parameters
     ----------
-    n_groups, points_per_group
-        Number of clusters (groups/buildings) and points per group.
-    delta
-        True mean paired difference for arm B (ignored if `effect` provided).
-    seed
-        RNG seed.
-    effect
-        Optional ClusterEffectSpec. Defaults to constant delta.
-    nugget_sd
-        Row-level iid noise SD added separately to arm A and arm B.
-    baseline_sd
-        SD of a baseline term shared across arms and therefore cancels in `diff`.
-    baseline_global
-        If True, a single baseline value per sample (shared across arms).
-        If False, baseline is still per-sample but drawn independently by group; since it cancels
-        in the difference, this mostly affects the raw y but not diff.
-    meas_group_sd
-        SD of the *group-level* arm-specific measurement effect. Set >0 to induce dependence in diff.
-    meas_shared
-        Correlation between arm-specific group effects in A and B (in [0,1]).
-        1.0 means identical group effects (cancels in diff); 0.0 means independent (max dependence in diff).
+    n_groups : int
+        Number of groups or clusters.
+    points_per_group : int
+        Number of paired observations per group.
+    delta : float, default=0.0
+        Constant arm B minus arm A mean difference when ``effect`` is not
+        provided.
+    seed : int, optional
+        Seed for the NumPy random number generator.
+    effect : ClusterEffectSpec, optional
+        Custom effect specification. When supplied, it overrides ``delta``.
+    nugget_sd : float, default=0.1
+        Row-level IID noise standard deviation added independently to each arm.
+    baseline_sd : float, default=1.0
+        Standard deviation of the shared baseline term.
+    baseline_global : bool, default=True
+        Included for interface compatibility with other generators.
+    meas_group_sd : float, default=0.0
+        Standard deviation of the group-level arm-specific measurement effect.
+    meas_shared : float, default=0.0
+        Correlation between arm-specific group effects in arm A and arm B.
 
     Returns
     -------
-    df_long, meta
-        Long dataframe with arms A/B and metadata.
+    tuple of (pandas.DataFrame, dict)
+        Long-format paired dataset and metadata describing the generating
+        parameters.
     """
     rng = np.random.default_rng(seed)
     n_groups = int(n_groups)
@@ -457,43 +459,54 @@ def generate_spatial_clusters(
     building_center_sd: float = 0.0,
     building_center_length_scale: Optional[float] = None,
 ) -> Tuple[pd.DataFrame, Dict]:
-    """Generate spatially dependent paired A/B data with optional arm-specific spatial error.
+    """Generate paired spatial data with optional within- and cross-cluster dependence.
 
-    This generator creates paired observations (arm A vs arm B) at the *same* spatial
-    locations. The latent spatial baseline is shared across arms, which is appropriate
-    for paired designs but causes the baseline to cancel in the paired difference
-    ``diff = y_B - y_A``.
-
-    To support stress-testing *spatially aware* inference on the paired difference,
-    this function implements:
-
-    Option A (arm-specific spatial measurement error)
-        Adds an arm-specific spatial process term that does **not** cancel in the paired
-        difference:
-        ``y_A = baseline + effect_A + eta_A(x) + eps_A``
-        ``y_B = baseline + effect_B + eta_B(x) + eps_B``
-        so ``diff = (effect_B-effect_A) + (eta_B-eta_A) + (eps_B-eps_A)`` includes
-        spatial dependence via ``eta_B-eta_A`` whenever ``meas_shared < 1``.
-
-    Option B (cross-cluster spatial dependence)
-        Allows either the baseline field and/or the arm-specific measurement fields to
-        be generated as *global* spatial processes over all points (not independent by
-        cluster). This produces spatial correlation **across** clusters.
-
-    Center-level global measurement field (new)
-        When ``center_global_meas_field=True`` and ``building_center_sd>0``, we generate
-        an additional *building-level* latent measurement component as a GP over building
-        centroids, then assign that value to all points within a building. If this component
-        does not cancel between A/B (controlled by ``meas_shared``), then:
-          - IID inference can be severely overconfident (many points are not independent).
-          - Cluster-robust inference can still be overconfident (clusters are not independent).
-          - A spatial GLS model can recover the correct uncertainty by modeling cross-cluster
-            covariance.
+    Parameters
+    ----------
+    n_clusters : int
+        Number of spatial clusters.
+    points_per_cluster : int
+        Number of paired observations per cluster.
+    cluster_radius : float, default=1.0
+        Standard deviation of the within-cluster spatial jitter.
+    length_scale : float, default=0.5
+        Range parameter for the shared baseline spatial field.
+    field_sd : float, default=1.0
+        Standard deviation of the shared baseline spatial field.
+    nugget_sd : float, default=0.1
+        IID observation-noise standard deviation.
+    delta : float, default=0.0
+        Constant arm B shift when ``effect`` is not provided.
+    seed : int, optional
+        Seed for the NumPy random number generator.
+    effect : EffectSpec, optional
+        Custom effect specification. When supplied, it overrides ``delta``.
+    meas_field_sd : float, default=0.0
+        Standard deviation of the arm-specific spatial measurement field.
+    meas_length_scale : float, optional
+        Range parameter for the arm-specific spatial measurement field. When
+        omitted, ``length_scale`` is used.
+    meas_shared : float, default=1.0
+        Correlation between the arm-specific spatial measurement fields.
+    baseline_global : bool, default=False
+        If True, simulate a single baseline field over all points rather than
+        independent fields by cluster.
+    meas_global : bool, default=False
+        If True, simulate the arm-specific measurement fields over all points
+        rather than independently by cluster.
+    center_global_meas_field : bool, default=False
+        If True, add a cluster-centroid measurement component shared within each
+        cluster.
+    building_center_sd : float, default=0.0
+        Standard deviation of the centroid-level measurement component.
+    building_center_length_scale : float, optional
+        Range parameter for the centroid-level measurement component.
 
     Returns
     -------
-    df, meta
-        Long dataframe with A/B rows and a metadata dictionary.
+    tuple of (pandas.DataFrame, dict)
+        Long-format paired dataset and metadata describing the generating
+        parameters.
     """
     print(f'seed in generate_spatial_clusters: {seed}')
     rng = np.random.default_rng(seed)
@@ -646,18 +659,32 @@ def generate_temporal_ar1(
     seed: Optional[int] = None,
     effect: Optional[EffectSpec] = None,
 ) -> Tuple[pd.DataFrame, Dict]:
-    """Generate AR(1) time series for each arm (optionally multiple parallel series).
+    """Generate paired temporal data with AR(1) dependence.
 
     Parameters
     ----------
-    n_time : length of the series
-    series_per_arm : how many independent series per arm (e.g., subjects)
-    rho : AR(1) correlation (|rho|<1)
-    process_sd : SD of the latent AR(1) process
-    obs_sd : iid observation noise SD
-    delta : constant shift for arm B (or use `effect` for time-varying)
-    seed : RNG seed
-    effect : optional EffectSpec; can depend on time index `t`
+    n_time : int
+        Number of time points per series.
+    series_per_arm : int, default=1
+        Number of independent paired series.
+    rho : float, default=0.7
+        AR(1) correlation parameter.
+    process_sd : float, default=1.0
+        Standard deviation of the latent AR(1) process.
+    obs_sd : float, default=0.1
+        IID observation-noise standard deviation.
+    delta : float, default=0.0
+        Constant arm B shift when ``effect`` is not provided.
+    seed : int, optional
+        Seed for the NumPy random number generator.
+    effect : EffectSpec, optional
+        Custom effect specification. When supplied, it overrides ``delta``.
+
+    Returns
+    -------
+    tuple of (pandas.DataFrame, dict)
+        Long-format paired dataset and metadata describing the generating
+        parameters.
     """
     rng = np.random.default_rng(seed)
     Kt = ar1_cov(n_time, rho=rho, variance=process_sd ** 2)
@@ -726,54 +753,37 @@ def generate_spatiotemporal(
     seed: Optional[int] = None,
     effect: Optional[EffectSpec] = None,
 ) -> Tuple[pd.DataFrame, Dict]:
-    """Generate a separable spatio-temporal process for paired A/B with *non-canceling* dependence in the difference.
-
-    Overview
-    --------
-    This generator creates paired observations at the same (space, time) index for arms A and B.
-
-    A key requirement for stress-testing dependence-aware TOST engines is that the paired
-    difference ``diff = y_B - y_A`` exhibits *dependence* (spatial, temporal, or spatio-temporal).
-    If the entire latent field is shared across arms, it cancels in ``diff`` and the paired
-    differences become iid (up to observation noise), making it impossible to construct
-    examples where dependence-aware methods disagree.
-
-    To address this, we keep a shared baseline field (paired design realism) but also add an
-    **arm-specific spatio-temporal measurement field** that does *not* cancel in the paired
-    difference unless the two arms are perfectly correlated.
-
-    Model
-    -----
-    Let ``b(s,t)`` be a shared baseline GP×AR(1) field and ``η_A(s,t)``, ``η_B(s,t)`` be arm-specific
-    spatio-temporal measurement fields with the same separable covariance structure.
-
-        y_A(s,t) = b(s,t) + 0 + η_A(s,t) + ε_A(s,t)
-        y_B(s,t) = b(s,t) + δ(s,t) + η_B(s,t) + ε_B(s,t)
-
-    Then
-
-        diff(s,t) = δ(s,t) + (η_B(s,t) - η_A(s,t)) + (ε_B(s,t) - ε_A(s,t)).
-
-    Arm-to-arm correlation in the measurement field
-    ------------------------------------------------
-    The correlation between ``η_A`` and ``η_B`` is not exposed as an extra parameter (signature
-    must remain unchanged). Instead, we derive a deterministic value from ``rho``:
-
-        meas_shared = clip(1 - 0.9*|rho|, 0.05, 0.95)
-
-    so that high temporal persistence (large |rho|) tends to yield lower cross-arm sharing and
-    therefore stronger dependence in the paired differences.
+    """Generate paired spatiotemporal data with separable dependence.
 
     Parameters
     ----------
-    n_space, n_time, length_scale, rho, spatial_sd, obs_sd, domain, delta, seed, effect
-        Same meaning as before. Note that ``spatial_sd`` now governs the marginal SD of both
-        the shared baseline and the arm-specific measurement field.
+    n_space : int
+        Number of spatial locations.
+    n_time : int
+        Number of time points.
+    length_scale : float, default=0.7
+        Spatial range parameter for the separable covariance model.
+    rho : float, default=0.6
+        Temporal AR(1) correlation parameter.
+    spatial_sd : float, default=1.0
+        Standard deviation of the shared baseline and arm-specific
+        spatiotemporal measurement fields.
+    obs_sd : float, default=0.1
+        IID observation-noise standard deviation.
+    domain : tuple of float, default=(-2, 2, -2, 2)
+        Spatial sampling domain as ``(xmin, xmax, ymin, ymax)``.
+    delta : float, default=0.0
+        Constant arm B shift when ``effect`` is not provided.
+    seed : int, optional
+        Seed for the NumPy random number generator.
+    effect : EffectSpec, optional
+        Custom effect specification. When supplied, it overrides ``delta``.
 
     Returns
     -------
-    df, meta
-        Long dataframe with A/B rows and metadata.
+    tuple of (pandas.DataFrame, dict)
+        Long-format paired dataset and metadata describing the generating
+        parameters.
     """
     rng = np.random.default_rng(seed)
 
@@ -861,21 +871,22 @@ def generate_spatiotemporal(
 # -----------------------
 
 def step_effect(delta_small: float, delta_large: float, threshold: float = 0.0) -> EffectSpec:
-    """Piecewise-constant effect based on the ``x`` coordinate.
+    """Create a step-function effect specification over ``x``.
 
     Parameters
     ----------
     delta_small : float
-        Effect when ``x < threshold``.
+        Effect used when ``x < threshold``.
     delta_large : float
-        Effect when ``x ≥ threshold``.
-    threshold : float, default 0.0
+        Effect used when ``x >= threshold``.
+    threshold : float, default=0.0
         Split point along the x-axis.
 
     Returns
     -------
     EffectSpec
-        Use as ``effect=`` in generators that include an ``x`` column.
+        Effect specification suitable for generators that expose an ``x``
+        column in their index dataframe.
     """
     def _fn(df: pd.DataFrame) -> Array:
         x = df.get("x")
@@ -886,21 +897,22 @@ def step_effect(delta_small: float, delta_large: float, threshold: float = 0.0) 
 
 
 def radial_decay_effect(delta0: float, center: Tuple[float, float] = (0.0, 0.0), scale: float = 1.0) -> EffectSpec:
-    """Radially decaying effect from a spatial center.
+    """Create a radially decaying spatial effect specification.
 
     Parameters
     ----------
     delta0 : float
         Peak effect at the center.
-    center : tuple of floats, default (0.0, 0.0)
-        (x, y) center of the decay.
-    scale : float, default 1.0
-        Length-scale of the radial decay.
+    center : tuple of float, default=(0.0, 0.0)
+        Spatial center of the effect.
+    scale : float, default=1.0
+        Radial decay scale.
 
     Returns
     -------
     EffectSpec
-        Use as ``effect=`` in spatial/spatio-temporal generators.
+        Effect specification suitable for spatial or spatiotemporal
+        generators.
     """
     def _fn(df: pd.DataFrame) -> Array:
         x = df.get("x")
@@ -913,19 +925,20 @@ def radial_decay_effect(delta0: float, center: Tuple[float, float] = (0.0, 0.0),
 
 
 def seasonal_effect(amplitude: float, period: float) -> EffectSpec:
-    """Sinusoidal effect over the integer time index ``t``.
+    """Create a sinusoidal temporal effect specification.
 
     Parameters
     ----------
     amplitude : float
-        Peak-to-baseline amplitude of the sinusoid.
+        Amplitude of the sinusoidal effect.
     period : float
         Period of the cycle in time steps.
 
     Returns
     -------
     EffectSpec
-        Use as ``effect=`` in temporal/spatio-temporal generators.
+        Effect specification suitable for temporal or spatiotemporal
+        generators.
     """
     def _fn(df: pd.DataFrame) -> Array:
         t = df.get("t")

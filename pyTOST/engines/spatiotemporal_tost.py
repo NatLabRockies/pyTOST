@@ -1,39 +1,15 @@
-"""engines/spatiotemporal_tost.py
-==============================
+"""Spatiotemporal equivalence testing engine.
 
-Spatio-temporal TOST
+This module implements spatiotemporal TOST procedures for paired-difference data
+with both spatial and temporal dependence. The primary pathway fits a balanced-panel
+joint Gaussian model with separable AR(1) temporal and Mat'ern spatial covariance.
+When the panel structure is incomplete, the implementation falls back to per-time
+spatial fits aggregated by inverse-variance weighting.
 
-This engine is designed for panel-like spatio-temporal data where observations have:
-
-- a building/group id (cluster),
-- spatial coordinates (x, y), and
-- a time index (time).
-
-Methods implemented
--------------------
-Primary: Joint separable spatiotemporal Gaussian likelihood
-    We fit an intercept-only Gaussian model with separable covariance
-
-        Σ = σ² (R_t ⊗ R_s) + τ² I,
-
-    where R_s is a Matérn correlation over spatial locations (ν fixed by the provided
-    nu_grid, defaulting to the largest ν), and R_t is an AR(1) correlation over time.
-    Parameters (μ, σ², ρ, τ², φ) are estimated by ML via L-BFGS-B. A Wald CI for μ is
-    computed using Var(μ̂) = 1 / (1ᵀ Σ^{-1} 1).
-
-    This method is only attempted when the data form a balanced panel (same spatial
-    locations at each time). If the balanced-panel requirement is not met, we fall back
-    to the interim approach below.
-
-Fallback: Per-time spatial fits + IVW
-    We use the spatial Matérn GLS (REML) methodology from
-    `spatial_tost.py` as the core estimator, applied per time slice.
-
-    1) For each time t, fit the spatial model to estimate μ_t and Var(μ_t).
-    2) Combine time-slice estimates into a global μ via inverse-variance weighting:
-           μ̂ = (Σ w_t μ̂_t) / (Σ w_t),  with w_t = 1 / Var(μ̂_t)
-       and Var(μ̂) = 1 / Σ w_t.
-    3) Construct a conservative t-based CI for μ̂ using df = (#times - 1).
+Notes
+-----
+The engine expects long-format data with one paired-difference response column,
+a cluster identifier, spatial coordinates, and a time index.
 """
 
 from __future__ import annotations
@@ -170,33 +146,69 @@ class SpatioTemporalConfig:
 
 
 def _pairwise_dists_xy(XY: np.ndarray) -> np.ndarray:
+    """Compute pairwise Euclidean distances between spatial locations.
+
+    Parameters
+    ----------
+    XY : ndarray of shape (n_locations, 2)
+        Array of planar coordinates. Column 0 is the x-coordinate and column 1
+        is the y-coordinate.
+
+    Returns
+    -------
+    ndarray of shape (n_locations, n_locations)
+        Symmetric matrix of Euclidean distances between all coordinate pairs.
+    """
     XY = np.asarray(XY, float)
     diff = XY[:, None, :] - XY[None, :, :]
     return np.sqrt(np.sum(diff * diff, axis=2))
 
 
 def _ar1_corr(T: int, phi: float) -> np.ndarray:
+    """Construct an AR(1) correlation matrix.
+
+    Parameters
+    ----------
+    T : int
+        Number of time points.
+    phi : float
+        Lag-1 autoregressive correlation parameter.
+
+    Returns
+    -------
+    ndarray of shape (T, T)
+        AR(1) correlation matrix with entries ``phi ** |i - j|``.
+    """
     idx = np.arange(T)
     D = np.abs(idx[:, None] - idx[None, :])
     return phi ** D
 
 
 class SpatioTemporalTOST:
-    """
-    Spatio-temporal TOST using spatial fits per time slice or a joint separable GP.
+    """Spatiotemporal TOST engine.
 
     Parameters
     ----------
     y : str
-        Response column (paired difference), e.g., "diff".
+        Name of the paired-difference response column.
     cluster : str
-        Building/group id column.
+        Name of the cluster identifier column.
     time : str
-        Time column.
-    x, ycoord : str
-        Coordinate columns.
-    config : SpatioTemporalConfig
-        Fit/aggregation settings.
+        Name of the time-index column.
+    x : str
+        Name of the x-coordinate column.
+    ycoord : str
+        Name of the y-coordinate column.
+    config : SpatioTemporalConfig, optional
+        Configuration controlling the joint model, fallback behavior, and
+        confidence-interval construction.
+
+    Notes
+    -----
+    The engine first attempts a balanced-panel joint separable likelihood fit.
+    If the data do not form a complete time-by-location grid, the implementation
+    falls back to fitting spatial models within time slices and combining the
+    slice-specific estimates by inverse-variance weighting.
     """
 
     def __init__(
@@ -216,6 +228,32 @@ class SpatioTemporalTOST:
         self.config = config or SpatioTemporalConfig()
 
     def fit(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame:
+        """Fit the spatiotemporal TOST model and return equivalence results.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Input analysis table containing the response, cluster identifier,
+            coordinates, and time index.
+        alpha : float
+            One-sided tail probability used to form the ``(1 - 2 * alpha)``
+            confidence interval for the mean paired difference.
+        margins : list of float
+            Equivalence margins to evaluate. Each margin defines the interval
+            ``(-delta, delta)`` used for the equivalence decision.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Result table with one row per requested margin. The table includes
+            the estimated mean difference, confidence interval bounds, the
+            equivalence indicator, and method metadata.
+
+        Raises
+        ------
+        ValueError
+            If any required input column is missing.
+        """
         # Validate required columns
         for col in (self.y, self.cluster, self.time, self.x, self.ycoord):
             if col not in df.columns:
@@ -235,12 +273,33 @@ class SpatioTemporalTOST:
     # ------------------------ Joint separable likelihood ------------------------
 
     def _try_joint_separable_ml(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame | None:
-        """
-        Try a joint separable space-time ML fit:
-            y ~ N(mu * 1, sigma2 * (R_t ⊗ R_s) + tau2 I),
-        with R_t AR(1) and R_s Matérn (ν fixed).
+        """Attempt the balanced-panel joint separable likelihood fit.
 
-        Returns a results DataFrame if successful and the panel is balanced; otherwise None.
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Input analysis table.
+        alpha : float
+            One-sided tail probability used for confidence-interval construction.
+        margins : list of float
+            Equivalence margins to evaluate.
+
+        Returns
+        -------
+        pandas.DataFrame or None
+            Result table from the joint spatiotemporal fit when the panel is
+            balanced and optimization succeeds. Returns ``None`` when the data
+            do not satisfy the balanced-panel requirements or the joint fit is
+            not numerically successful.
+
+        Notes
+        -----
+        The joint model assumes
+
+        ``y ~ N(mu * 1, sigma2 * (R_t kron R_s) + tau2 * I))``,
+
+        where ``R_t`` is an AR(1) temporal correlation matrix and ``R_s`` is a
+        Mat'ern spatial correlation matrix with fixed smoothness.
         """
         # Identify unique ordered times and unique locations
         times = np.sort(df[self.time].unique())
@@ -647,6 +706,30 @@ class SpatioTemporalTOST:
     # ------------------------ Legacy per-time IVW ------------------------
 
     def _fit_per_time_ivw(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame:
+        """Fit the fallback per-time spatial model and aggregate by IVW.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Input analysis table.
+        alpha : float
+            One-sided tail probability used for confidence-interval construction.
+        margins : list of float
+            Equivalence margins to evaluate.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Result table formed by fitting a spatial model within each eligible
+            time slice, combining the slice-specific mean estimates by inverse-
+            variance weighting, and constructing a t-based confidence interval
+            for the pooled mean.
+
+        Raises
+        ------
+        ValueError
+            If fewer than two time slices yield successful spatial fits.
+        """
         mu_list = []
         var_list = []
         diag_rows = []

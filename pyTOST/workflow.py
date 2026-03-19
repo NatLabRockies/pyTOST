@@ -1,16 +1,9 @@
-"""
-workflow.py
-===========
+"""Workflow orchestration for pyTOST.
 
-Orchestration for pyTOST engines. Choose from IID, cluster, spatial, temporal, or spatiotemporal engines.
-
-Sensitivity analysis
---------------------
-The workflow can optionally compute:
-  - cluster bootstrap CI for mean (sanity check)
-  - heteroskedastic robust CI
-  - robust-location CI (median/trimmed mean)
-
+This module provides the main workflow entry point for dependence-aware
+Two One-Sided Tests (TOST) across IID, clustered, temporal, spatial, and
+spatiotemporal settings. It also defines configuration options for optional
+sensitivity analyses and validation bootstrap procedures.
 """
 
 from __future__ import annotations
@@ -33,15 +26,49 @@ from .bootstrap import cluster_bootstrap, spatial_block_bootstrap, spatial_withi
 
 @dataclass(frozen=True)
 class WorkflowOptions:
-    """Options controlling optional sensitivity analyses and bootstrap selection."""
+    """Configuration options for workflow sensitivity analyses and bootstrap checks.
+
+    Attributes
+    ----------
+    do_sensitivity : bool, default=True
+        Whether to compute optional sensitivity analyses in addition to the
+        primary engine result.
+    bootstrap_B : int, default=200
+        Number of bootstrap replicates used for the optional validation
+        bootstrap.
+    seed : int, default=42
+        Random seed used for bootstrap-based procedures.
+    robust_location_B : int, default=200
+        Number of bootstrap replicates used by the robust-location
+        sensitivity analysis.
+    robust_location_block_len : int, default=5
+        Block length used for time-dependent robust-location bootstrap
+        procedures.
+    robust_location_stat : str, default="median"
+        Robust location statistic used in the robust-location sensitivity
+        analysis.
+    cross_building_dependence : bool or None, default=None
+        Override controlling whether bootstrap validation for spatial or
+        spatiotemporal analyses should assume dependence across clusters.
+        If ``None``, the workflow attempts to infer this from the supplied
+        configuration object.
+    spatial_block_size : float, default=1.0
+        Block size, in coordinate units, used by spatial block bootstrap
+        procedures.
+    """
 
     do_sensitivity: bool = True
     bootstrap_B: int = 200
     seed: int = 42
 
+    # Sensitivity-analysis controls
+    robust_location_B: int = 200
+    robust_location_block_len: int = 5
+    robust_location_stat: str = "median"
+
     # For spatial/spatiotemporal bootstrap selection only:
-    #   - True  -> use spatial block bootstrap (allows cross-building dependence)
-    #   - False -> use cluster bootstrap over building_id
+    #   - True  -> use spatial block bootstrap (allows cross-cluster dependence)
+    #   - False -> use cluster bootstrap over the grouping column
     #   - None  -> infer from config if possible, else default False
     cross_building_dependence: Optional[bool] = None
 
@@ -55,12 +82,34 @@ def _infer_cross_building_dependence(
     spatial_config: Optional[Any] = None,
     spatiotemporal_config: Optional[Any] = None,
 ) -> bool:
-    """Infer cross-building dependence for bootstrap selection.
+    """Infer whether bootstrap validation should assume cross-cluster dependence.
 
-    Precedence:
-      1) options.cross_building_dependence if not None
-      2) config flags if present (e.g., meas_global / baseline_global)
-      3) default False
+    Parameters
+    ----------
+    options : WorkflowOptions
+        Workflow options that may explicitly specify whether dependence
+        across clusters should be assumed.
+    spatial_config : object, optional
+        Spatial configuration object that may contain flags describing
+        cross-cluster dependence.
+    spatiotemporal_config : object, optional
+        Spatiotemporal configuration object that may contain flags
+        describing cross-cluster dependence.
+
+    Returns
+    -------
+    bool
+        ``True`` if cross-cluster dependence should be assumed for
+        bootstrap selection and ``False`` otherwise.
+
+    Notes
+    -----
+    The inference precedence is:
+
+    1. ``options.cross_building_dependence`` when explicitly provided.
+    2. Recognized dependence flags on the spatial or spatiotemporal
+       configuration object.
+    3. ``False`` when no explicit signal is available.
     """
     if options.cross_building_dependence is not None:
         return bool(options.cross_building_dependence)
@@ -97,35 +146,62 @@ def run_tost(
     spatiotemporal_config: SpatioTemporalConfig | None = None,
     options: WorkflowOptions | None = None,
 ) -> dict[str, Any]:
-    """
-    Execute a chosen TOST engine and optional sensitivity analyses.
+    """Run dependence-aware equivalence testing and optional validation analyses.
 
     Parameters
     ----------
-    df : DataFrame
-        Analysis dataset.
+    df : pandas.DataFrame
+        Input analysis table containing paired differences and any columns
+        required by the selected engine.
     y : str
-        Response column (paired difference).
-    margins : list[float]
-        Equivalence margins.
-    alpha : float
-        One-sided alpha for TOST CI-inclusion rule.
-    engine : {"iid","cluster","temporal","spatial","spatiotemporal"}
-        Primary engine to run.
-    cluster, time, x, ycoord : str or None
-        Required depending on engine.
-    spatial_config, spatiotemporal_config
-        Settings for spatial/spatiotemporal engines.
-    options : WorkflowOptions
-        Controls sensitivity analyses.
+        Name of the column containing paired differences.
+    margins : list of float
+        Equivalence margins to evaluate.
+    alpha : float, default=0.05
+        One-sided significance level used by the TOST confidence-interval
+        inclusion rule.
+    engine : {"iid", "cluster", "temporal", "spatial", "spatiotemporal"}, default="iid"
+        Primary dependence-aware inference engine to run.
+    cluster : str or None, optional
+        Name of the grouping column used by clustered, spatial, and
+        spatiotemporal workflows.
+    time : str or None, optional
+        Name of the time-index column used by temporal and spatiotemporal
+        workflows.
+    x : str or None, optional
+        Name of the x-coordinate column used by spatial and spatiotemporal
+        workflows.
+    ycoord : str or None, optional
+        Name of the y-coordinate column used by spatial and spatiotemporal
+        workflows.
+    spatial_config : SpatialConfig or None, optional
+        Configuration object used when ``engine="spatial"``.
+    spatiotemporal_config : SpatioTemporalConfig or None, optional
+        Configuration object used when ``engine="spatiotemporal"``.
+    options : WorkflowOptions or None, optional
+        Workflow options controlling sensitivity analyses and validation
+        bootstrap procedures. If ``None``, default options are used.
 
     Returns
     -------
-    dict with keys:
-      - engine
-      - primary (DataFrame)
-      - sensitivity (dict[str, DataFrame]) if enabled
-      - bootstrap (dict) if enabled and cluster provided
+    dict of str to object
+        Dictionary containing the selected engine label under ``"engine"``
+        and the primary result table under ``"primary"``. When enabled,
+        additional entries may include ``"sensitivity"`` for optional
+        sensitivity-analysis results and ``"bootstrap"`` for validation
+        bootstrap output.
+
+    Raises
+    ------
+    ValueError
+        If the selected engine is unknown or the required column names for
+        that engine are not supplied.
+
+    Notes
+    -----
+    The primary result is not altered by optional sensitivity analyses or
+    bootstrap validation. These procedures are returned as additional
+    outputs intended to help assess robustness of the equivalence decision.
     """
     options = options or WorkflowOptions()
     eng = engine.lower().strip()
@@ -171,17 +247,23 @@ def run_tost(
     if options.do_sensitivity:
         sens: dict[str, pd.DataFrame] = {}
         sens["Heteroskedastic"] = HeteroskedasticTOST(y=y, cluster=cluster).fit(df, alpha=alpha, margins=margins)
-        sens["Robust Location"] = RobustLocationTOST(y=y, cluster=cluster, time=time, block_len=5, B=2000, seed=options.seed).fit(
-            df, alpha=alpha, margins=margins
-        )
+        sens["Robust Location"] = RobustLocationTOST(
+            y=y,
+            cluster=cluster,
+            time=time,
+            block_len=options.robust_location_block_len,
+            B=options.robust_location_B,
+            seed=options.seed,
+            stat=options.robust_location_stat,
+        ).fit(df, alpha=alpha, margins=margins)
         out["sensitivity"] = sens
 
     # Optional bootstrap sanity check for the mean (validation CI)
     #
-    # By default we use a cluster bootstrap over `cluster` (e.g., buildings).
-    # For spatial/spatiotemporal engines, if the configuration indicates *cross-building*
+    # By default we use a cluster bootstrap over `cluster` (for example, sites or other grouped units).
+    # For spatial/spatiotemporal engines, if the configuration indicates *cross-cluster*
     # dependence (e.g., a global field), we instead use a simple spatial block bootstrap
-    # over building centroids to avoid understating uncertainty.
+    # over cluster centroids to avoid understating uncertainty.
     if cluster and cluster in df.columns and options.bootstrap_B > 0:
         stat = lambda d_: d_[y].mean()
 
@@ -192,8 +274,8 @@ def run_tost(
                 spatiotemporal_config=spatiotemporal_config,
             )
 
-            # Spatial engine: validate within-building spatial dependence with a within-building block bootstrap.
-            # If the user indicates cross-building dependence, switch to a block bootstrap over building centroids.
+            # Spatial engine: validate within-cluster spatial dependence with a within-cluster block bootstrap.
+            # If the user indicates cross-cluster dependence, switch to a block bootstrap over cluster centroids.
             if eng == "spatial" and not use_spatial_blocks:
                 bb = spatial_within_building_block_bootstrap(
                     df,
@@ -210,7 +292,7 @@ def run_tost(
                 out["bootstrap"] = bb
 
             else:
-                # Cross-building dependence (or spatiotemporal): bootstrap blocks over building centroids.
+                # Cross-cluster dependence (or spatiotemporal): bootstrap blocks over cluster centroids.
                 if use_spatial_blocks:
                     bb = spatial_block_bootstrap(
                         df,

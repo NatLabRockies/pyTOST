@@ -6,7 +6,7 @@ Cluster-aware TOST using **cluster-robust OLS only**.
 Rationale
 ---------
 For equivalence testing of a mean difference with clustered observations (e.g., multiple
-samples within buildings), a random-intercept MixedLM fit can become numerically unstable
+samples within clusters), a random-intercept MixedLM fit can become numerically unstable
 when the random-effect variance is near zero or the number of clusters is small, often
 triggering warnings such as singular random-effects covariance or boundary solutions.
 In these regimes, MixedLM-based standard errors and confidence intervals for the mean can
@@ -49,10 +49,18 @@ class ClusterTOST:
 
     Parameters
     ----------
-    y
-        Response column name (paired difference), e.g., ``diff``.
-    cluster
-        Cluster/group column name (e.g., ``building_id``).
+    y : str
+        Name of the response column containing paired differences.
+    cluster : str
+        Name of the column identifying clusters or grouped observational units.
+
+    Notes
+    -----
+    This engine estimates the mean paired difference using an intercept-only
+    ordinary least squares model and computes a cluster-robust sandwich
+    covariance estimate for inference. Equivalence is assessed by checking
+    whether the confidence interval for the mean difference lies entirely
+    within each user-specified equivalence margin.
     """
 
     def __init__(self, y: str, cluster: str):
@@ -60,7 +68,29 @@ class ClusterTOST:
         self.cluster = cluster
 
     def _cluster_robust_ci(self, df: pd.DataFrame, alpha: float) -> Tuple[float, Tuple[float, float], int, str]:
-        """Compute μ̂ and a two-sided (1-2α) CI using cluster-robust OLS."""
+        """Compute a cluster-robust confidence interval for the mean difference.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Input analysis table containing the paired-difference column and
+            the cluster identifier column.
+        alpha : float
+            One-sided Type I error rate used to form the two-sided
+            ``(1 - 2 * alpha)`` confidence interval.
+
+        Returns
+        -------
+        mu_hat : float
+            Estimated mean paired difference.
+        ci : tuple of float
+            Two-element tuple ``(ci_low, ci_high)`` giving the confidence
+            interval bounds for the mean paired difference.
+        dfree : int
+            Degrees of freedom used for the critical value calculation.
+        label : str
+            Human-readable description of the estimation method.
+        """
         if self.y not in df.columns:
             raise ValueError(f"ClusterTOST requires y column {self.y!r}. Available: {list(df.columns)}")
         if self.cluster not in df.columns:
@@ -84,18 +114,39 @@ class ClusterTOST:
         return mu_hat, (float(ci_low), float(ci_high)), dfree, f"OLS + cluster-robust SE (df={dfree})"
 
     def fit(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame:
-        """Run CI-in-TOST decisions for all margins.
+        """Evaluate TOST equivalence decisions under clustered dependence.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Input analysis table containing paired differences and cluster
+            identifiers.
+        alpha : float
+            One-sided Type I error rate used to form the two-sided
+            ``(1 - 2 * alpha)`` confidence interval.
+        margins : list of float
+            Equivalence margins to evaluate. A separate row is returned for
+            each margin.
 
         Returns
         -------
-        DataFrame
-            Columns:
-            - delta: equivalence margin Δ
-            - mu_hat: point estimate of mean difference μ̂
-            - ci_low, ci_high: CI bounds for μ
-            - equivalent: whether CI is inside (-Δ,+Δ)
-            - method: estimator label
-            - df: degrees of freedom used for the t critical value
+        pandas.DataFrame
+            Data frame with one row per equivalence margin and the following
+            columns:
+
+            ``delta``
+                Equivalence margin.
+            ``mu_hat``
+                Estimated mean paired difference.
+            ``ci_low``, ``ci_high``
+                Confidence interval bounds for the mean paired difference.
+            ``equivalent``
+                Indicator for whether the confidence interval lies entirely
+                within ``(-delta, delta)``.
+            ``method``
+                Human-readable description of the estimation method.
+            ``df``
+                Degrees of freedom used for the critical value.
         """
         mu, ci, dfree, label = self._cluster_robust_ci(df, alpha)
 
