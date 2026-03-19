@@ -28,7 +28,7 @@
   "ok_pattern": true,
   "params": {
     "baseline_global": false,
-    "building_center_sd": 5.135484707440701,
+    "cluster_center_sd": 5.135484707440701,
     "center_global_meas_field": false,
     "cluster_radius": 0.7903255148059561,
     "delta": 0.9521330650917972,

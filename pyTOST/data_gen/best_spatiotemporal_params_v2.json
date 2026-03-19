@@ -1,0 +1,63 @@
+{
+  "ci_cluster": [
+    NaN,
+    NaN
+  ],
+  "ci_iid": [
+    NaN,
+    NaN
+  ],
+  "ci_spatial": [
+    NaN,
+    NaN
+  ],
+  "ci_spatiotemporal": [
+    NaN,
+    NaN
+  ],
+  "eq_cluster": false,
+  "eq_iid": false,
+  "eq_spatial": false,
+  "eq_spatiotemporal": false,
+  "generator_kwargs": {
+    "delta": 0.8573828193115102,
+    "domain": [
+      -2.0,
+      2.0,
+      -2.0,
+      2.0
+    ],
+    "length_scale": 1.6610796183178342,
+    "n_space": 25,
+    "n_time": 98,
+    "obs_sd": 0.34362835199673214,
+    "rho": 0.7813432078187739,
+    "spatial_sd": 0.5407247208680243
+  },
+  "mu_hat_cluster": NaN,
+  "mu_hat_iid": NaN,
+  "mu_hat_spatial": NaN,
+  "mu_hat_spatiotemporal": NaN,
+  "notes": "Exception: KeyError: 'time'",
+  "ok_pattern": false,
+  "panel_kwargs": {
+    "n_clusters": 9
+  },
+  "params": {
+    "delta": 0.8573828193115102,
+    "domain": [
+      -2.0,
+      2.0,
+      -2.0,
+      2.0
+    ],
+    "length_scale": 1.6610796183178342,
+    "n_clusters": 9,
+    "n_space": 25,
+    "n_time": 98,
+    "obs_sd": 0.34362835199673214,
+    "rho": 0.7813432078187739,
+    "spatial_sd": 0.5407247208680243
+  },
+  "score": Infinity
+}

@@ -1,11 +1,11 @@
-from __future__ import annotations
-"""Utilities for calibrating clustered synthetic-data parameters.
 
-This module searches over parameters for
-:func:`pyTOST.data_gen.synthetic_tost_data.generate_cluster_groups` to find
-clustered synthetic datasets that induce a target comparison between inference
-engines. The default objective favors scenarios in which the IID engine declares
-equivalence at a specified margin while the cluster-robust engine does not.
+from __future__ import annotations
+"""
+Optimization routine to find synthetic *clustered* data-generation parameters for
+`generate_cluster_groups(...)` that yield the pattern:
+
+  - IID engine: TOST passes at margin Δ=1
+  - Cluster engine: TOST fails at margin Δ=1.
 """
 
 from dataclasses import dataclass
@@ -20,27 +20,6 @@ from pyTOST.engines import iid_tost, cluster_tost
 
 
 def _make_diff_df(df_long: pd.DataFrame) -> pd.DataFrame:
-    """Convert long-format paired data to a paired-difference table.
-
-    Parameters
-    ----------
-    df_long : pandas.DataFrame
-        Long-format synthetic dataset containing paired observations for arms
-        ``"A"`` and ``"B"``. The input must include ``sample_id``, ``arm``,
-        ``y``, ``group_id``, ``x``, and ``y_sp`` columns.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Wide-format paired-difference table containing one row per
-        ``sample_id`` with columns ``sample_id``, ``group_id``, ``x``, ``y``,
-        and ``diff``.
-
-    Raises
-    ------
-    ValueError
-        If the required columns are not present in ``df_long``.
-    """
     need = {"sample_id", "arm", "y", "group_id", "x", "y_sp"}
     missing = need - set(df_long.columns)
     if missing:
@@ -57,24 +36,6 @@ def _make_diff_df(df_long: pd.DataFrame) -> pd.DataFrame:
 def _tost_iid_cluster(
     df_diff: pd.DataFrame, *, alpha: float, margin: float
 ) -> Tuple[Tuple[float, float], bool, float, Tuple[float, float], bool, float]:
-    """Evaluate IID and clustered TOST analyses on a difference table.
-
-    Parameters
-    ----------
-    df_diff : pandas.DataFrame
-        Paired-difference table produced by :func:`_make_diff_df`.
-    alpha : float
-        One-sided significance level used to form the TOST confidence interval.
-    margin : float
-        Equivalence margin to test.
-
-    Returns
-    -------
-    tuple
-        Tuple containing ``(ci_iid, eq_iid, mu_iid, ci_cluster, eq_cluster,
-        mu_cluster)`` where each confidence interval is a two-element tuple,
-        each equivalence flag is boolean, and each mean estimate is a float.
-    """
     iid = iid_tost.IIDTOST(y="diff")
     r_iid = iid.fit(df_diff, alpha=alpha, margins=[margin]).iloc[0]
     ci_iid = (float(r_iid["ci_low"]), float(r_iid["ci_high"]))
@@ -92,28 +53,6 @@ def _tost_iid_cluster(
 
 @dataclass(frozen=True)
 class Bounds:
-    """Search-space bounds for clustered parameter optimization.
-
-    Attributes
-    ----------
-    n_groups_min, n_groups_max : int
-        Inclusive bounds for the number of groups.
-    points_per_group_min, points_per_group_max : int
-        Inclusive bounds for the number of paired samples within each group.
-    log10_nugget_sd_min, log10_nugget_sd_max : float
-        Bounds on the base-10 logarithm of the nugget-scale standard deviation.
-    baseline_sd_min, baseline_sd_max : float
-        Bounds for baseline standard deviation.
-    log10_meas_group_sd_min, log10_meas_group_sd_max : float
-        Bounds on the base-10 logarithm of the group-level measurement standard
-        deviation.
-    meas_shared_min, meas_shared_max : float
-        Bounds for the fraction of shared measurement error.
-    delta_true_min, delta_true_max : float
-        Bounds for the true mean difference parameter used in generation.
-    baseline_global : bool
-        Whether the generator uses a global baseline term.
-    """
     n_groups_min: int = 4
     n_groups_max: int = 30
 
@@ -138,14 +77,6 @@ class Bounds:
     baseline_global: bool = True
 
     def as_de_bounds(self) -> list[tuple[float, float]]:
-        """Return bounds in the format expected by differential evolution.
-
-        Returns
-        -------
-        list of tuple of float
-            Ordered parameter bounds corresponding to the encoded parameter
-            vector used by :func:`_decode`.
-        """
         return [
             (float(self.n_groups_min), float(self.n_groups_max)),
             (float(self.points_per_group_min), float(self.points_per_group_max)),
@@ -158,22 +89,6 @@ class Bounds:
 
 
 def _decode(x: np.ndarray, b: Bounds) -> Dict[str, Any]:
-    """Decode an optimizer parameter vector into generator keyword arguments.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        Optimizer parameter vector in the order expected by
-        :meth:`Bounds.as_de_bounds`.
-    b : Bounds
-        Search-space bounds object used to clip and transform parameters.
-
-    Returns
-    -------
-    dict
-        Keyword arguments suitable for
-        :func:`pyTOST.data_gen.synthetic_tost_data.generate_cluster_groups`.
-    """
     n_groups = int(np.clip(int(round(float(x[0]))), b.n_groups_min, b.n_groups_max))
     points_per_group = int(np.clip(int(round(float(x[1]))), b.points_per_group_min, b.points_per_group_max))
     nugget_sd = float(10 ** float(x[2]))
@@ -201,32 +116,6 @@ def evaluate(
     margin: float = 1.0,
     seed: int = 123,
 ) -> Dict[str, Any]:
-    """Score clustered generator parameters against a target TOST pattern.
-
-    Parameters
-    ----------
-    gen_kwargs : dict
-        Keyword arguments passed to
-        :func:`pyTOST.data_gen.synthetic_tost_data.generate_cluster_groups`.
-    alpha : float, default=0.05
-        One-sided significance level used for TOST confidence intervals.
-    margin : float, default=1.0
-        Equivalence margin used by both inference engines.
-    seed : int, default=123
-        Random seed passed to the synthetic-data generator.
-
-    Returns
-    -------
-    dict
-        Diagnostic summary containing the objective score, engine-specific
-        confidence intervals, equivalence flags, and mean estimates.
-
-    Notes
-    -----
-    The default score favors settings where the IID engine declares
-    equivalence and the clustered engine does not, while discouraging extreme
-    failures and encouraging mean estimates near the equivalence boundary.
-    """
     df_long, _meta = generate_cluster_groups(seed=seed, **gen_kwargs)
     df_diff = _make_diff_df(df_long)
     ci_iid, eq_iid, mu_iid, ci_clu, eq_clu, mu_clu = _tost_iid_cluster(df_diff, alpha=alpha, margin=margin)
@@ -280,38 +169,6 @@ def optimize(
     workers: int = 1,
     verbose: bool = True,
 ) -> Dict[str, Any]:
-    """Optimize clustered generator parameters with differential evolution.
-
-    Parameters
-    ----------
-    alpha : float, default=0.05
-        One-sided significance level used in the TOST analyses.
-    margin : float, default=1.0
-        Equivalence margin used to evaluate candidate datasets.
-    seed : int, default=123
-        Random seed supplied to the synthetic-data generator.
-    bounds : Bounds, optional
-        Search-space bounds. If omitted, default bounds are used.
-    maxiter : int, default=80
-        Maximum number of differential-evolution iterations.
-    popsize : int, default=16
-        Population size multiplier for the optimizer.
-    polish : bool, default=False
-        Whether to perform a local polishing step after differential evolution.
-    rng_seed : int, default=0
-        Random seed for the optimizer.
-    workers : int, default=1
-        Number of worker processes passed to
-        :func:`scipy.optimize.differential_evolution`.
-    verbose : bool, default=True
-        Whether to print improvements when a better candidate is found.
-
-    Returns
-    -------
-    dict
-        Dictionary with ``best_kwargs`` for generation and ``diagnostics``
-        summarizing the best-scoring solution and optimizer status.
-    """
     b = bounds or Bounds()
     de_bounds = b.as_de_bounds()
 
@@ -366,3 +223,4 @@ def optimize(
             "nfev": int(getattr(result, "nfev", -1)),
         },
     }
+

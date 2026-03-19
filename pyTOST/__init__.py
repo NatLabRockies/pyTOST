@@ -1,25 +1,28 @@
-"""Public API for the pyTOST package.
+"""pyTOST package public API.
 
-pyTOST provides dependence-aware equivalence testing for paired differences
-using the two one-sided tests (TOST) framework. The package exposes a
-workflow-oriented entry point, dependence-specific inference engines, and
-validation-oriented sensitivity-analysis engines.
+This package provides equivalence testing (TOST) for paired differences under
+multiple dependence structures. Users choose
+the appropriate engine (IID / cluster / temporal / spatial / spatio-temporal)
+based on their data-generating process and study design.
 
-Notes
------
-The recommended user-facing entry point is :func:`pyTOST.run_tost`, which
-applies the selected inference engine and can optionally add sensitivity
-analyses and bootstrap-based validation summaries.
+Primary entry point
+-------------------
+`run_tost(...)` in `workflow.py` executes a selected engine and (optionally)
+adds sensitivity analyses and a cluster bootstrap sanity check.
 
-Available public objects include:
+Engines
+-------
+- IIDTOST: classic t-based CI for the mean difference (i.i.d. residuals).
+- ClusterTOST: valid inference with intra-cluster correlation (e.g., clusters, sites, or grouped units).
+- TemporalTOST: valid inference with serial correlation (e.g., time series).
+- SpatialTOST: Gaussian Matérn GLS (REML) + likelihood-ratio CI.
+- SpatioTemporalTOST: spatiotemporal inference for balanced panels and IVW fallback for unbalanced panels.
 
-- ``run_tost`` and ``WorkflowOptions`` for the top-level workflow.
-- ``IIDTOST``, ``ClusterTOST``, ``TemporalTOST``, ``SpatialTOST``, and
-  ``SpatioTemporalTOST`` for primary inference.
-- ``SpatialConfig`` and ``SpatioTemporalConfig`` for spatial and
-  spatiotemporal configuration.
-- ``HeteroskedasticTOST`` and ``RobustLocationTOST`` for sensitivity
-  analyses.
+Sensitivity analyses
+--------------------
+- HeteroskedasticTOST: robust (HC / wild bootstrap) CI for mean difference.
+- RobustLocationTOST: bootstrap CI for robust location (median / trimmed mean).
+
 """
 
 from __future__ import annotations

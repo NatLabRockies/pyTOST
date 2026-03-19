@@ -1,15 +1,37 @@
-"""Robust-location TOST based on bootstrap confidence intervals.
+"""
+engines/robust_location_tost.py
+===============================
+Robust-location TOST based on the *median* (or other M-estimator) with bootstrap CI.
 
-This module provides a dependence-aware equivalence-testing workflow for robust
-location statistics such as the median or a trimmed mean. Confidence intervals
-are obtained by bootstrap resampling, with the resampling scheme chosen to
-match the observed dependence structure.
+Why
+---
+The mean can be non-robust under heavy tails or outliers. For practical
+equivalence judgments you may prefer a robust location statistic (median).
+We construct a (1-2α) bootstrap CI for the median and apply the CI containment
+criterion for TOST.
 
-Classes
--------
-RobustLocationTOST
-    Perform TOST using a robust location statistic and bootstrap confidence
-    intervals.
+Dependence-aware resampling
+---------------------------
+- If `cluster` present: **cluster bootstrap** (resample whole clusters).
+- Else if `time` present: **moving/block bootstrap** (simple fixed-length blocks).
+- Else: i.i.d. bootstrap.
+
+Notes
+-----
+Block bootstrap here is a light-weight fixed-size moving-block bootstrap suitable
+for quick sensitivity checks. For rigorous time-series work, you may want to
+swap-in a circular or stationary bootstrap.
+
+References
+----------
+- Davison & Hinkley (1997) Bootstrap Methods and Their Application.
+- Lahiri (2003) Resampling Methods for Dependent Data.
+- Hettmansperger & Sheather (1986) Robust estimation (median properties).
+
+API
+---
+RobustLocationTOST(y, cluster=None, time=None, block_len=5, B=2000, seed=42, stat="median")
+  .fit(df, alpha, margins) -> DataFrame
 """
 from __future__ import annotations
 import numpy as np
@@ -18,21 +40,6 @@ from typing import List, Optional, Tuple
 
 
 def _statistic(arr: np.ndarray, stat: str) -> float:
-    """Compute a robust location statistic for a numeric array.
-
-    Parameters
-    ----------
-    arr : numpy.ndarray
-        One-dimensional array of observations.
-    stat : str
-        Name of the statistic to compute. Supported options are ``"median"``,
-        ``"trimmed_mean_20"``, and fallback mean behavior for any other value.
-
-    Returns
-    -------
-    float
-        Estimated location statistic.
-    """
     if stat == "median":
         return float(np.median(arr))
     elif stat == "trimmed_mean_20":
@@ -46,34 +53,12 @@ def _statistic(arr: np.ndarray, stat: str) -> float:
 
 
 def _percentile_ci(arr: np.ndarray, alpha: float) -> Tuple[float, float]:
-    """Compute a two-sided percentile bootstrap confidence interval.
-
-    Parameters
-    ----------
-    arr : numpy.ndarray
-        Bootstrap replicates of a scalar statistic.
-    alpha : float
-        One-sided TOST significance level. The resulting confidence interval
-        has nominal coverage ``1 - 2 * alpha``.
-
-    Returns
-    -------
-    tuple of float
-        Lower and upper percentile confidence limits.
-    """
     ql = 2 * alpha / 2.0
     qh = 1 - 2 * alpha / 2.0
     return float(np.quantile(arr, ql)), float(np.quantile(arr, qh))
 
 
 class RobustLocationTOST:
-    """TOST based on a robust location statistic with bootstrap uncertainty.
-
-    The class computes a point estimate from a robust location statistic and
-    constructs a bootstrap confidence interval adapted to clustered, temporal,
-    or independent data.
-    """
-
     def __init__(
         self,
         y: str,
@@ -112,18 +97,6 @@ class RobustLocationTOST:
 
     # --- resampling generators ---
     def _cluster_bootstrap_stats(self, df: pd.DataFrame) -> np.ndarray:
-        """Generate bootstrap replicates using whole-cluster resampling.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis table containing the response and cluster columns.
-
-        Returns
-        -------
-        numpy.ndarray
-            Bootstrap replicates of the selected robust location statistic.
-        """
         rng = np.random.default_rng(self.seed)
         groups = df[self.cluster].unique()
         vals = []
@@ -134,18 +107,6 @@ class RobustLocationTOST:
         return np.asarray(vals, float)
 
     def _moving_block_bootstrap_stats(self, df: pd.DataFrame) -> np.ndarray:
-        """Generate bootstrap replicates using a moving-block bootstrap.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis table containing the response and time columns.
-
-        Returns
-        -------
-        numpy.ndarray
-            Bootstrap replicates of the selected robust location statistic.
-        """
         rng = np.random.default_rng(self.seed)
         df2 = df.sort_values(self.time).reset_index(drop=True)
         n = len(df2)
@@ -163,18 +124,6 @@ class RobustLocationTOST:
         return np.asarray(vals, float)
 
     def _iid_bootstrap_stats(self, df: pd.DataFrame) -> np.ndarray:
-        """Generate bootstrap replicates under an IID resampling scheme.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis table containing the response column.
-
-        Returns
-        -------
-        numpy.ndarray
-            Bootstrap replicates of the selected robust location statistic.
-        """
         rng = np.random.default_rng(self.seed)
         y = df[self.y].to_numpy(float)
         vals = []
@@ -185,26 +134,6 @@ class RobustLocationTOST:
 
     # --- API ---
     def fit(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame:
-        """Fit the robust-location TOST model for one or more margins.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis table containing the response column and, when
-            relevant, cluster or time identifiers.
-        alpha : float
-            One-sided TOST significance level. The reported confidence interval
-            has nominal coverage ``1 - 2 * alpha``.
-        margins : list of float
-            Equivalence margins to evaluate.
-
-        Returns
-        -------
-        pandas.DataFrame
-            Result table with one row per equivalence margin and columns for the
-            estimate, confidence interval, equivalence decision, and method
-            label.
-        """
         # point estimate:
         mu_hat = _statistic(df[self.y].to_numpy(float), self.stat)
 

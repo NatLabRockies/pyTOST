@@ -33,21 +33,6 @@ from typing import List, Optional, Tuple
 
 
 def _percentile_ci(arr: np.ndarray, alpha: float) -> Tuple[float, float]:
-    """Compute a percentile confidence interval from bootstrap draws.
-
-    Parameters
-    ----------
-    arr : numpy.ndarray
-        One-dimensional array of bootstrap replicates for the target mean.
-    alpha : float
-        One-sided TOST significance level. The returned interval has nominal
-        coverage ``1 - 2 * alpha``.
-
-    Returns
-    -------
-    tuple of float
-        Lower and upper percentile interval bounds.
-    """
     # For equivalence at α one-sided, we use a 100*(1-2α)% CI for μ.
     lo = np.quantile(arr, 2 * alpha / 2.0)  # α lower for two tails
     hi = np.quantile(arr, 1 - 2 * alpha / 2.0)
@@ -55,39 +40,20 @@ def _percentile_ci(arr: np.ndarray, alpha: float) -> Tuple[float, float]:
 
 
 class HeteroskedasticTOST:
-    """TOST engine with heteroskedasticity-robust inference.
-
-    Parameters
-    ----------
-    y : str
-        Column containing paired differences.
-    cluster : str or None, optional
-        Column identifying clusters. If provided, clustered inference and wild
-        cluster bootstrap are used.
-    wild_B : int, default=999
-        Number of wild bootstrap replicates.
-    wild_type : {"rademacher"}, default="rademacher"
-        Multiplier distribution used for the wild bootstrap.
-    seed : int, default=42
-        Random-number seed for bootstrap resampling.
-    """
-
     def __init__(self, y: str, cluster: Optional[str] = None, wild_B: int = 999, wild_type: str = "rademacher", seed: int = 42):
-        """Initialize the heteroskedasticity-aware TOST engine.
-
+        """
         Parameters
         ----------
         y : str
-            Column containing paired differences.
-        cluster : str or None, optional
-            Column identifying clusters. If provided, clustered inference and
-            wild cluster bootstrap are used.
-        wild_B : int, default=999
+            Response column (e.g., SAV difference).
+        cluster : str or None
+            Cluster column (for example, cluster_id). If provided, use cluster-robust SE and wild cluster bootstrap.
+        wild_B : int
             Number of wild bootstrap replicates.
-        wild_type : {"rademacher"}, default="rademacher"
-            Multiplier distribution used for the wild bootstrap.
-        seed : int, default=42
-            Random-number seed for bootstrap resampling.
+        wild_type : {"rademacher"}
+            Multiplier type for wild bootstrap. (Rademacher: ±1 with equal prob.)
+        seed : int
+            RNG seed.
         """
         self.y = y
         self.cluster = cluster
@@ -97,21 +63,6 @@ class HeteroskedasticTOST:
 
     # --- core estimators ---
     def _hc3(self, df: pd.DataFrame, alpha: float):
-        """Fit an intercept-only model with HC3 robust standard errors.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis table.
-        alpha : float
-            One-sided TOST significance level.
-
-        Returns
-        -------
-        tuple
-            Mean estimate, two-sided confidence interval with nominal coverage
-            ``1 - 2 * alpha``, and a method label.
-        """
         X = np.ones((len(df), 1))
         fit = sm.OLS(df[self.y].to_numpy(float), X).fit(cov_type="HC3")
         mu = float(fit.params[0])
@@ -121,21 +72,6 @@ class HeteroskedasticTOST:
         return mu, (mu - tcrit * se, mu + tcrit * se), "OLS (HC3)"
 
     def _cluster_robust(self, df: pd.DataFrame, alpha: float):
-        """Fit an intercept-only model with cluster-robust covariance.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis table.
-        alpha : float
-            One-sided TOST significance level.
-
-        Returns
-        -------
-        tuple
-            Mean estimate, two-sided confidence interval with nominal coverage
-            ``1 - 2 * alpha``, and a method label.
-        """
         X = np.ones((len(df), 1))
         fit = sm.OLS(df[self.y].to_numpy(float), X).fit(
             cov_type="cluster",
@@ -188,24 +124,6 @@ class HeteroskedasticTOST:
 
     # --- fit ---
     def fit(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame:
-        """Run heteroskedasticity-aware TOST inference.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis table.
-        alpha : float
-            One-sided TOST significance level.
-        margins : list of float
-            Equivalence margins to evaluate.
-
-        Returns
-        -------
-        pandas.DataFrame
-            Result table with one row per equivalence margin and columns such as
-            ``delta``, ``mu_hat``, ``ci_low``, ``ci_high``, ``equivalent``, and
-            ``method``.
-        """
         have_cluster = self.cluster is not None and self.cluster in df.columns
 
         if have_cluster:

@@ -1,18 +1,48 @@
 """
-Spatial TOST engines and helper routines.
+Publication-grade spatial TOST with Matérn GLS and likelihood-ratio CIs
+======================================================================
 
-This module implements likelihood-based spatial equivalence testing for paired
-differences under within-cluster Mat'ern dependence. It includes covariance
-helpers, REML fitting, likelihood-ratio confidence intervals for the mean
-difference, diagnostic summaries, sensitivity analyses, and a backward-compatible
-workflow wrapper used by :class:`SpatialTOST`.
+This module implements a rigorous workflow to decide whether spatial dependence
+matters and, when it does, to estimate the population mean difference μ using a
+Gaussian process with a Matérn covariance (shared hyper-parameters across clusters),
+fitted by REML. We then produce a **profile likelihood CI for μ** and apply the
+CI-in-TOST rule over any set of equivalence margins Δ.
 
-Notes
------
-Public users will typically interact with :class:`SpatialTOST`,
-:class:`SpatialConfig`, or :func:`run_pubgrade_spatial_tost`. The remaining
-functions provide lower-level building blocks for covariance construction, REML
-optimization, diagnostics, and report generation.
+Key features
+------------
+- Diagnostics: ICC (random-intercept), IID vs cluster-robust SE inflation, empirical
+  variograms, Moran’s I (optional with PySAL).
+- Spatial model: block-diagonal Σ = diag{ Σ_b }, each Σ_b is Matérn(σ^2, ρ, ν) + τ^2 I
+  on the cluster’s coordinates (x,y). Hyper-parameters (σ^2, ρ, τ^2) are estimated by
+  **REML** for each candidate ν; ν is chosen by profile REML over a grid (e.g., {0.5,1.5,2.5}).
+- μ inference:
+  * GLS estimator: μ̂(θ) = (1ᵗ Σ(θ)⁻¹ y) / (1ᵗ Σ(θ)⁻¹ 1)
+  * Likelihood-ratio CI for μ: invert LRT with 1 df → robust to θ uncertainty.
+- Sensitivity: Mixed-effects (K–R via R if available; else statsmodels + conservative df),
+  cluster-robust OLS, cluster (block) bootstrap CI for μ.
+- Reporting: tidy DataFrames over Δ, diagnostic figures, and summary plots.
+
+Statistical references
+----------------------
+- Matérn covariance and spatial likelihood: Cressie (1993), Stein (1999).
+- REML for covariance parameters: Harville (1977), Kenward & Roger (1997).
+- Equivalence testing (TOST): Schuirmann (1987); Lakens (2017).
+- Small-sample cluster-robust variance: Bell & McCaffrey (2002); Pustejovsky & Tipton (2018).
+
+API
+---
+run_pubgrade_spatial_tost(df, cluster_col='cluster_id', x_col='x', y_col='y',
+                          diff_col='diff', margins=(1,3,5), alpha=0.05, out_dir='tost_pub',
+                          nu_grid=(0.5, 1.5, 2.5), share_params_across_clusters=True,
+                          per_cluster_nugget=True, do_sensitivity=True, moran_k=4,
+                          bootstrap_B=2000, random_state=42)
+
+Returns dict with:
+- 'diagnostics': metrics + file paths to figures
+- 'model': {'theta_hat': ..., 'nu_star': ..., 'mu_hat': ..., 'ci_mu_lrt': (...)}
+- 'summaries': {method_name: DataFrame over Δ with μ, CI, equivalence}
+- 'notes': caveats and fit summary strings
+
 """
 
 from __future__ import annotations
@@ -58,45 +88,16 @@ def _ensure_dir(d: str):
         os.makedirs(d, exist_ok=True)
 
 def _pairwise_dists(X: np.ndarray) -> np.ndarray:
-    """Compute pairwise Euclidean distances between planar coordinates.
-
-    Parameters
-    ----------
-    X : ndarray of shape (n_samples, 2)
-        Coordinate array whose rows represent spatial locations.
-
-    Returns
-    -------
-    ndarray of shape (n_samples, n_samples)
-        Symmetric distance matrix for the rows of ``X``.
-    """
+    """Euclidean distances for rows of X (n x 2)."""
     diff = X[:, None, :] - X[None, :, :]
     return np.sqrt(np.sum(diff * diff, axis=2))
 
 def matern_cov(d: np.ndarray, sigma2: float, rho: float, nu: float) -> np.ndarray:
-    """Evaluate a Matern covariance function on a distance matrix.
-
-    Parameters
-    ----------
-    d : ndarray
-        Pairwise distance matrix.
-    sigma2 : float
-        Marginal process variance.
-    rho : float
-        Range parameter.
-    nu : float
-        Smoothness parameter of the Matern family.
-
-    Returns
-    -------
-    ndarray
-        Covariance matrix with the same shape as ``d``.
-
-    Notes
-    -----
-    The implementation uses the standard Matern form with variance ``sigma2``,
-    range ``rho``, and smoothness ``nu``. Distances near zero are handled
-    separately so that the diagonal limit is numerically stable.
+    """
+    Matérn covariance with variance sigma2, range rho, smoothness nu.
+    Uses parameterization: C(h) = sigma2 * 2^{1-ν}/Γ(ν) * (√(2ν) h / ρ)^ν K_ν(√(2ν) h / ρ),
+    with C(0) = sigma2.
+    Numerically stabilized for h→0 using series expansion.
     """
     d = np.asarray(d, float)
     # scaled distance
@@ -115,47 +116,21 @@ def matern_cov(d: np.ndarray, sigma2: float, rho: float, nu: float) -> np.ndarra
     # symmetry and fill diagonal later by caller if needed
     return C
 
-def block_matern_cov(df: pd.DataFrame, building_col: str, x_col: str, y_col: str,
+def block_matern_cov(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str,
                      sigma2: float, rho: float, nu: float, tau2: float,
-                     per_building_nugget: bool) -> Tuple[np.ndarray, List[int]]:
-    """Assemble a block-diagonal Mat'ern covariance matrix by cluster.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input data containing cluster identifiers and coordinates.
-    building_col : str
-        Column identifying independent clusters or buildings.
-    x_col : str
-        Name of the x-coordinate column.
-    y_col : str
-        Name of the y-coordinate column.
-    sigma2 : float
-        Marginal process variance.
-    rho : float
-        Range parameter.
-    nu : float
-        Mat'ern smoothness parameter.
-    tau2 : float
-        Nugget variance added to each diagonal entry.
-    per_building_nugget : bool
-        Whether to apply the nugget within each cluster block.
-
-    Returns
-    -------
-    Sigma : ndarray
-        Block-diagonal covariance matrix.
-    block_sizes : list of int
-        Number of observations in each cluster block.
+                     per_cluster_nugget: bool) -> Tuple[np.ndarray, List[int]]:
+    """
+    Assemble block-diagonal covariance Σ across clusters; each block is Matérn + nugget.
+    Returns (Sigma, block_sizes).
     """
     blocks = []
     sizes = []
-    for _, g in df.groupby(building_col):
+    for _, g in df.groupby(cluster_col):
         coords = g[[x_col, y_col]].to_numpy(float)
         D = _pairwise_dists(coords)
         K = matern_cov(D, sigma2=sigma2, rho=rho, nu=nu)
-        # nugget: τ^2 I (either shared or per-building; here we use same tau2 for all blocks,
-        # but allowing per_building_nugget means we *add* τ^2 I even for small blocks)
+        # nugget: τ^2 I (either shared or per-cluster; here we use same tau2 for all blocks,
+        # but allowing per_cluster_nugget means we *add* τ^2 I even for small blocks)
         n = len(g)
         K[np.diag_indices(n)] += tau2
         blocks.append(K)
@@ -165,7 +140,7 @@ def block_matern_cov(df: pd.DataFrame, building_col: str, x_col: str, y_col: str
 
 # def gls_mu_and_profile_loglik(y: np.ndarray, ones: np.ndarray, Sigma: np.ndarray) -> Tuple[float, float, float]:
 #     """
-#     Given y (stacked by buildings), compute:
+#     Given y (stacked by clusters), compute:
 #       - GLS μ̂ = (1' Σ⁻¹ y) / (1' Σ⁻¹ 1)
 #       - Var(μ̂) = 1 / (1' Σ⁻¹ 1)
 #       - REML loglik (intercept-only) up to constants: 
@@ -188,25 +163,9 @@ def block_matern_cov(df: pd.DataFrame, building_col: str, x_col: str, y_col: str
 #     return mu_hat, var_mu, ll
 
 def _chol_inverse_with_jitter(Sigma, max_tries=8, base=1e-12):
-    """Invert a covariance matrix via Cholesky with adaptive jitter.
-
-    Parameters
-    ----------
-    Sigma : ndarray
-        Symmetric covariance matrix to invert.
-    max_tries : int, default=8
-        Maximum number of Cholesky attempts.
-    base : float, default=1e-12
-        Base jitter multiplier used when the initial factorization fails.
-
-    Returns
-    -------
-    Sinv : ndarray
-        Approximate inverse of ``Sigma``.
-    logdet : float
-        Log-determinant of the jittered matrix used in the successful factorization.
-    jitter : float
-        Jitter amount added to the diagonal.
+    """
+    Try Cholesky on Sigma; if it fails, add jitter = scale * I with scale increasing geometrically.
+    Returns Sinv and log|Sigma|.
     """
     n = Sigma.shape[0]
     # scale the jitter relative to average variance level to be unit-agnostic
@@ -228,26 +187,9 @@ from scipy import linalg
 import numpy as np
 
 def gls_mu_and_profile_loglik(y, ones, Sigma):
-    """Compute the GLS mean estimate and Gaussian profile log-likelihood.
-
-    Parameters
-    ----------
-    y : array-like
-        Response vector.
-    ones : array-like
-        Intercept design vector, typically all ones.
-    Sigma : ndarray
-        Covariance matrix for ``y``.
-
-    Returns
-    -------
-    mu_hat : float
-        Generalized least squares estimate of the intercept-only mean.
-    var_mu : float
-        Estimated variance of ``mu_hat`` under the supplied covariance model.
-    ll : float
-        Gaussian log-likelihood evaluated at ``mu_hat`` up to the implemented
-        parameterization and normalization constants.
+    """
+    GLS μ̂, Var(μ̂), and profile Gaussian loglik using robust Cholesky.
+    Requires y and ones to be 1-D arrays of length n.
     """
     y = np.asarray(y, dtype=float).ravel()       # ensure 1-D
     ones = np.asarray(ones, dtype=float).ravel() # ensure 1-D
@@ -269,22 +211,7 @@ def gls_mu_and_profile_loglik(y, ones, Sigma):
 
 # ---------- Geometry helpers ----------
 def _dedupe_coords(XY, eps=1e-9, rng_seed=123):
-    """Add tiny jitter to duplicate coordinates.
-
-    Parameters
-    ----------
-    XY : array-like
-        Coordinate array whose rows represent locations.
-    eps : float, default=1e-9
-        Standard deviation of the jitter applied to duplicated rows.
-    rng_seed : int, default=123
-        Random seed used for reproducible jitter.
-
-    Returns
-    -------
-    ndarray
-        Coordinate array with exact duplicates slightly perturbed.
-    """
+    """Tiny jitter for exact duplicate (x,y) rows to avoid zero distances."""
     XY = np.asarray(XY, float).copy()
     if XY.size == 0:
         return XY
@@ -297,23 +224,9 @@ def _dedupe_coords(XY, eps=1e-9, rng_seed=123):
 
 # ---------- Matérn kernel (ν fixed) ----------
 def _matern_cov(dist, sigma2, rho, nu):
-    """Evaluate the internal Mat'ern covariance kernel.
-
-    Parameters
-    ----------
-    dist : array-like
-        Pairwise distance matrix.
-    sigma2 : float
-        Marginal process variance.
-    rho : float
-        Range parameter.
-    nu : float
-        Smoothness parameter.
-
-    Returns
-    -------
-    ndarray
-        Covariance matrix evaluated at ``dist``.
+    """
+    Matérn covariance for given pairwise distance matrix 'dist'.
+    Uses scaled range parameter rho (practical range); stable for small d.
     """
     from scipy.special import kv, gamma
     d = np.asarray(dist, float)
@@ -336,50 +249,19 @@ def _pairwise_dists(XY):
     return np.sqrt((diff ** 2).sum(axis=2))
 
 # ---------- Build block-diagonal Σ and stacks ----------
-def _build_sigma_and_stacks(df, building_col, x_col, y_col, diff_col, sigma2, rho, tau2, nu, per_building_nugget):
-    """Construct the stacked response and block-diagonal covariance matrix.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input data containing clustered coordinates and paired differences.
-    building_col : str
-        Cluster identifier column.
-    x_col : str
-        X-coordinate column.
-    y_col : str
-        Y-coordinate column.
-    diff_col : str
-        Paired-difference response column.
-    sigma2 : float
-        Marginal process variance.
-    rho : float
-        Range parameter.
-    tau2 : float
-        Nugget variance.
-    nu : float
-        Mat'ern smoothness parameter.
-    per_building_nugget : bool
-        Whether to add the nugget within each building block.
-
-    Returns
-    -------
-    Sigma : ndarray
-        Block-diagonal covariance matrix across clusters.
-    y : ndarray
-        Stacked response vector.
-    ones : ndarray
-        Column vector of ones aligned with ``y``.
+def _build_sigma_and_stacks(df, cluster_col, x_col, y_col, diff_col, sigma2, rho, tau2, nu, per_cluster_nugget):
+    """
+    Returns (Sigma, y, ones). Sigma is block-diagonal across clusters.
     """
     y_list, ones_list, blocks = [], [], []
-    for bldg, sub in df.groupby(building_col, sort=False):
+    for bldg, sub in df.groupby(cluster_col, sort=False):
         yy = sub[diff_col].to_numpy(float)
         XY = sub[[x_col, y_col]].to_numpy(float)
         XY = _dedupe_coords(XY)  # avoid exact duplicates
         D = _pairwise_dists(XY)
         K = _matern_cov(D, sigma2=sigma2, rho=rho, nu=nu)
-        # nugget: either global (same τ² across all rows) or per-building
-        if per_building_nugget:
+        # nugget: either global (same τ² across all rows) or per-cluster
+        if per_cluster_nugget:
             K[np.diag_indices_from(K)] += tau2
         else:
             K[np.diag_indices_from(K)] += tau2
@@ -400,34 +282,10 @@ def _build_sigma_and_stacks(df, building_col, x_col, y_col, diff_col, sigma2, rh
     return Sigma, y, ones
 
 # ---------- FIXED reml_objective ----------
-def reml_objective(theta_log, df, building_col, x_col, y_col, diff_col, nu, per_building_nugget):
-    """Evaluate the REML objective for Mat'ern covariance parameters.
-
-    Parameters
-    ----------
-    theta_log : array-like of length 3
-        Log-scale covariance parameters ``(log(sigma2), log(rho), log(tau2))``.
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    x_col : str
-        X-coordinate column.
-    y_col : str
-        Y-coordinate column.
-    diff_col : str
-        Response column containing paired differences.
-    nu : float
-        Fixed Mat'ern smoothness value for this optimization pass.
-    per_building_nugget : bool
-        Whether to add nugget variance within each building block.
-
-    Returns
-    -------
-    neg_reml : float
-        Negative profile log-likelihood value used by the optimizer.
-    cache : dict
-        Cached parameter and mean-estimate quantities associated with the evaluation.
+def reml_objective(theta_log, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget):
+    """
+    Given log-params theta_log = (log σ², log ρ, log τ²), build Σ, compute GLS μ̂ and profile loglik.
+    Returns (neg_reml, cache).
     """
     # unpack with positivity
     sigma2 = float(np.exp(theta_log[0]))
@@ -442,8 +300,8 @@ def reml_objective(theta_log, df, building_col, x_col, y_col, diff_col, nu, per_
 
     # build Σ, y, 1
     Sigma, y, ones = _build_sigma_and_stacks(
-        df, building_col, x_col, y_col, diff_col,
-        sigma2=sigma2, rho=rho, tau2=tau2, nu=nu, per_building_nugget=per_building_nugget
+        df, cluster_col, x_col, y_col, diff_col,
+        sigma2=sigma2, rho=rho, tau2=tau2, nu=nu, per_cluster_nugget=per_cluster_nugget
     )
 
     # GLS + profile loglik with adaptive jitter (penalize if still not PD)
@@ -460,8 +318,8 @@ def reml_objective(theta_log, df, building_col, x_col, y_col, diff_col, nu, per_
 
 
 
-# def fit_matern_reml(df: pd.DataFrame, building_col: str, x_col: str, y_col: str, diff_col: str,
-#                     nu_grid: Iterable[float] = (0.5, 1.5, 2.5), per_building_nugget: bool = True,
+# def fit_matern_reml(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str, diff_col: str,
+#                     nu_grid: Iterable[float] = (0.5, 1.5, 2.5), per_cluster_nugget: bool = True,
 #                     start: Optional[Tuple[float,float,float]] = None, verbose: bool = False) -> Dict:
 #     """
 #     Fit Matérn parameters by REML with ν chosen by profile over nu_grid.
@@ -471,9 +329,9 @@ def reml_objective(theta_log, df, building_col, x_col, y_col, diff_col, nu, per_
 #     y = df[diff_col].to_numpy(float)
 #     var_y = np.var(y, ddof=1) if len(y) > 1 else max(1.0, y[0]**2)
 #     # crude d-scale
-#     # median within-building pairwise distance as a starting range
+#     # median within-cluster pairwise distance as a starting range
 #     med_d = []
-#     for _, g in df.groupby(building_col):
+#     for _, g in df.groupby(cluster_col):
 #         if len(g) >= 2:
 #             D = _pairwise_dists(g[[x_col, y_col]].to_numpy(float))
 #             iu = np.triu_indices_from(D, k=1)
@@ -486,13 +344,13 @@ def reml_objective(theta_log, df, building_col, x_col, y_col, diff_col, nu, per_
 #     for nu in nu_grid:
 #         theta0 = np.log(np.array(start))
 #         res = optimize.minimize(
-#             lambda th: reml_objective(th, df, building_col, x_col, y_col, diff_col, nu, per_building_nugget)[0],
+#             lambda th: reml_objective(th, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget)[0],
 #             theta0,
 #             method="L-BFGS-B",
 #             bounds=[(-20, 20), (-20, 20), (-20, 20)],
 #             options=dict(maxiter=500)
 #         )
-#         val, cache = reml_objective(res.x, df, building_col, x_col, y_col, diff_col, nu, per_building_nugget)
+#         val, cache = reml_objective(res.x, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget)
 #         if verbose:
 #             print(f"ν={nu}: REML={-val:.3f}, θ={np.exp(res.x)}")
 #         if val < best["obj"]:
@@ -501,44 +359,29 @@ def reml_objective(theta_log, df, building_col, x_col, y_col, diff_col, nu, per_
 
 def fit_matern_reml(
     df: pd.DataFrame,
-    building_col: str,
+    cluster_col: str,
     x_col: str,
     y_col: str,
     diff_col: str,
     nu_grid: Iterable[float] = (0.5, 1.5, 2.5),
-    per_building_nugget: bool = True,
+    per_cluster_nugget: bool = True,
     start: Optional[Tuple[float, float, float]] = None,
     verbose: bool = False,
 ) -> Dict:
-    """Fit Mat'ern covariance parameters by REML over a grid of smoothness values.
+    """
+    Fit Matérn parameters by REML with ν chosen by profile over nu_grid.
 
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    x_col : str
-        X-coordinate column.
-    y_col : str
-        Y-coordinate column.
-    diff_col : str
-        Response column containing paired differences.
-    nu_grid : iterable of float, default=(0.5, 1.5, 2.5)
-        Candidate Mat'ern smoothness values profiled during REML fitting.
-    per_building_nugget : bool, default=True
-        Whether to include a nugget term within each building block.
-    start : tuple of float, optional
-        Optional starting values ``(sigma2, rho, tau2)``. If omitted, crude
-        moment-based values are constructed from the data.
-    verbose : bool, default=False
-        If True, print progress information for each smoothness candidate.
+    start: optional (sigma2, rho, tau2) initial values; if None, crude method-of-moments.
 
-    Returns
-    -------
-    dict
-        Dictionary containing the selected smoothness, fitted covariance
-        parameters, mean estimate, variance proxy, and optimizer results.
+    Returns dict with:
+      - nu
+      - theta_log
+      - theta (exp(theta_log))
+      - mu_hat
+      - var_mu_hat
+      - REML objective value
+      - optimizer result
+      - cached covariance quantities
     """
     y = df[diff_col].to_numpy(float)
     n = len(y)
@@ -547,7 +390,7 @@ def fit_matern_reml(
 
     # crude distance scale
     med_d = []
-    for _, g in df.groupby(building_col):
+    for _, g in df.groupby(cluster_col):
         if len(g) >= 2:
             D = _pairwise_dists(g[[x_col, y_col]].to_numpy(float))
             iu = np.triu_indices_from(D, k=1)
@@ -565,7 +408,7 @@ def fit_matern_reml(
 
         res = optimize.minimize(
             lambda th: reml_objective(
-                th, df, building_col, x_col, y_col, diff_col, nu, per_building_nugget
+                th, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget
             )[0],
             theta0,
             method="L-BFGS-B",
@@ -574,7 +417,7 @@ def fit_matern_reml(
         )
 
         val, cache = reml_objective(
-            res.x, df, building_col, x_col, y_col, diff_col, nu, per_building_nugget
+            res.x, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget
         )
 
         if verbose:
@@ -620,7 +463,7 @@ def fit_matern_reml(
 
 def lr_ci_for_mu(
     df: pd.DataFrame,
-    building_col: str,
+    cluster_col: str,
     x_col: str,
     y_col: str,
     diff_col: str,
@@ -658,7 +501,7 @@ def lr_ci_for_mu(
 
         Sigma, y, ones = _build_sigma_and_stacks(
             df=df,
-            building_col=building_col,
+            cluster_col=cluster_col,
             x_col=x_col,
             y_col=y_col,
             diff_col=diff_col,
@@ -666,7 +509,7 @@ def lr_ci_for_mu(
             rho=rho,
             tau2=tau2,
             nu=float(theta.get("nu", 2.5)),
-            per_building_nugget=bool(theta.get("per_building_nugget", True)),
+            per_cluster_nugget=bool(theta.get("per_cluster_nugget", True)),
         )
 
         y_vec = np.asarray(y, dtype=float).reshape(-1)
@@ -732,7 +575,7 @@ def lr_ci_for_mu(
         tau2 = float(np.exp(theta_log[2]))
         Sigma, y, ones = _build_sigma_and_stacks(
             df=df,
-            building_col=building_col,
+            cluster_col=cluster_col,
             x_col=x_col,
             y_col=y_col,
             diff_col=diff_col,
@@ -740,7 +583,7 @@ def lr_ci_for_mu(
             rho=rho,
             tau2=tau2,
             nu=float(theta.get("nu", 2.5)),
-            per_building_nugget=bool(theta.get("per_building_nugget", True)),
+            per_cluster_nugget=bool(theta.get("per_cluster_nugget", True)),
         )
         ones_col = np.asarray(ones, dtype=float).reshape(-1, 1)
         n = ones_col.shape[0]
@@ -883,89 +726,26 @@ def lr_ci_for_mu(
     return (float(min(left, right)), float(max(left, right)))
 
 
-def compute_icc(df: pd.DataFrame, building_col: str, diff_col: str) -> float:
-    """Estimate the intraclass correlation from a random-intercept model.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    diff_col : str
-        Response column containing paired differences.
-
-    Returns
-    -------
-    float
-        Estimated intraclass correlation coefficient.
-    """
-    md = smf.mixedlm(f"{diff_col} ~ 1", df, groups=df[building_col])
+def compute_icc(df: pd.DataFrame, cluster_col: str, diff_col: str) -> float:
+    md = smf.mixedlm(f"{diff_col} ~ 1", df, groups=df[cluster_col])
     fit = md.fit(reml=True, method="lbfgs", disp=False)
     tau2 = float(fit.cov_re.iloc[0,0]); sig2 = float(fit.scale)
     return tau2 / (tau2 + sig2) if (tau2 + sig2) > 0 else 0.0
 
-def morans_I(df: pd.DataFrame, building_col: str, x_col: str, y_col: str, diff_col: str, k=4) -> pd.DataFrame:
-    """Compute building-level Moran's I diagnostics when PySAL is available.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    x_col : str
-        X-coordinate column.
-    y_col : str
-        Y-coordinate column.
-    diff_col : str
-        Response column containing paired differences.
-    k : int, default=4
-        Number of nearest neighbors used to construct the weight matrix.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Table with one row per building and Moran's I summary columns.
-    """
+def morans_I(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str, diff_col: str, k=4) -> pd.DataFrame:
     if not HAVE_PYSAL:
-        return pd.DataFrame(columns=["building_id","n","I","p_norm"])
+        return pd.DataFrame(columns=["cluster_id","n","I","p_norm"])
     recs=[]
-    for bid, g in df.groupby(building_col):
+    for bid, g in df.groupby(cluster_col):
         if len(g) < k+2: continue
         W = KNN.from_array(g[[x_col,y_col]].to_numpy(float), k=k)
         mi = Moran(g[diff_col].to_numpy(float), W, two_tailed=False)
-        recs.append({"building_id": bid, "n": len(g), "I": float(mi.I), "p_norm": float(mi.p_norm)})
+        recs.append({"cluster_id": bid, "n": len(g), "I": float(mi.I), "p_norm": float(mi.p_norm)})
     return pd.DataFrame(recs)
 
-def empirical_variograms(df, building_col, x_col, y_col, diff_col, n_bins=8, out_dir=None):
-    """Compute simple empirical variograms within each building.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    x_col : str
-        X-coordinate column.
-    y_col : str
-        Y-coordinate column.
-    diff_col : str
-        Response column containing paired differences.
-    n_bins : int, default=8
-        Number of distance bins used in the empirical variogram.
-    out_dir : str, optional
-        Directory where variogram figures are written. If omitted, figures are
-        not saved.
-
-    Returns
-    -------
-    dict
-        Mapping from building identifier to a variogram summary DataFrame.
-    """
+def empirical_variograms(df, cluster_col, x_col, y_col, diff_col, n_bins=8, out_dir=None):
     out = {}
-    for bid, g in df.groupby(building_col):
+    for bid, g in df.groupby(cluster_col):
         if len(g) < 4: continue
         coords = g[[x_col,y_col]].to_numpy(float)
         y = g[diff_col].to_numpy(float)
@@ -984,40 +764,16 @@ def empirical_variograms(df, building_col, x_col, y_col, diff_col, n_bins=8, out
             plt.figure(); plt.plot(centers, gamma, marker="o")
             plt.xlabel("Distance"); plt.ylabel("Semivariance"); plt.title(f"Variogram (bldg {bid})")
             _ensure_dir(out_dir); plt.tight_layout()
-            plt.savefig(os.path.join(out_dir, f"variogram_building_{bid}.png"), dpi=140); plt.close()
+            plt.savefig(os.path.join(out_dir, f"variogram_cluster_{bid}.png"), dpi=140); plt.close()
     return out
 
-def cluster_bootstrap_mu(df: pd.DataFrame, building_col: str, diff_col: str, B=2000, seed=42) -> Tuple[float,float,Tuple[float,float]]:
-    """Bootstrap the cluster-level mean difference.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    diff_col : str
-        Response column containing paired differences.
-    B : int, default=2000
-        Number of bootstrap replicates.
-    seed : int, default=42
-        Random seed used for resampling.
-
-    Returns
-    -------
-    est : float
-        Mean of the bootstrap replicate means.
-    se : float
-        Standard deviation of the bootstrap replicate means.
-    ci : tuple of float
-        Percentile bootstrap confidence interval.
-    """
+def cluster_bootstrap_mu(df: pd.DataFrame, cluster_col: str, diff_col: str, B=2000, seed=42) -> Tuple[float,float,Tuple[float,float]]:
     rng = np.random.default_rng(seed)
-    groups = df[building_col].unique()
+    groups = df[cluster_col].unique()
     Nhat = []
     for _ in range(B):
         samp = rng.choice(groups, size=len(groups), replace=True)
-        y = pd.concat([df[df[building_col]==g][diff_col] for g in samp], axis=0).to_numpy(float)
+        y = pd.concat([df[df[cluster_col]==g][diff_col] for g in samp], axis=0).to_numpy(float)
         Nhat.append(float(np.mean(y)))
     est = float(np.mean(Nhat))
     se = float(np.std(Nhat, ddof=1))
@@ -1027,46 +783,24 @@ def cluster_bootstrap_mu(df: pd.DataFrame, building_col: str, diff_col: str, B=2
 import warnings
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 
-def mixed_effects_mu(df, building_col: str, diff_col: str, alpha: float):
-    """Estimate the mean difference with a random-intercept mixed model.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    diff_col : str
-        Response column containing paired differences.
-    alpha : float
-        One-sided significance level used to construct the confidence interval.
-
-    Returns
-    -------
-    est : float
-        Estimated mean paired difference.
-    ci : tuple of float
-        Confidence interval for the mean paired difference.
-    note : str
-        Description of the fitting path used, including any fallback behavior.
-
-    Notes
-    -----
-    If ``rpy2`` with ``lmerTest`` is available, the function attempts a
-    Kenward--Roger analysis through R. Otherwise it uses ``statsmodels``
-    ``MixedLM`` and falls back to cluster-robust OLS when the random-effect
-    variance is near the boundary or singular.
+def mixed_effects_mu(df, cluster_col: str, diff_col: str, alpha: float):
     """
-    G = df[building_col].nunique()
+    Mixed-effects: diff ~ 1 + (1|cluster).
+    Robust to boundary/singularity:
+      - If rpy2 + lmerTest available -> use Kenward–Roger.
+      - Else statsmodels MixedLM (REML). If tau^2 ~ 0 or singular/boundary warnings,
+        fall back to cluster-robust OLS CI for μ and annotate method.
+    """
+    G = df[cluster_col].nunique()
 
     # Preferred: R path (Kenward–Roger)
     if HAVE_RPY2:
         try:
             ro.r('suppressPackageStartupMessages({library(lme4); library(lmerTest)})')
-            r_df = pandas2ri.py2rpy(df[[building_col, diff_col]].copy())
+            r_df = pandas2ri.py2rpy(df[[cluster_col, diff_col]].copy())
             ro.globalenv['r_df'] = r_df
             ro.r(f'''
-                fit <- lmer({diff_col} ~ 1 + (1|{building_col}), data=r_df, REML=TRUE)
+                fit <- lmer({diff_col} ~ 1 + (1|{cluster_col}), data=r_df, REML=TRUE)
                 est  <- fixef(fit)[1]
                 se   <- as.numeric(coef(summary(fit))[1, "Std. Error"])
                 dfKR <- as.numeric(coef(summary(fit))[1, "df"])
@@ -1083,7 +817,7 @@ def mixed_effects_mu(df, building_col: str, diff_col: str, alpha: float):
 
     with warnings.catch_warnings(record=True) as wlist:
         warnings.simplefilter("always")
-        md = smf.mixedlm(f"{diff_col} ~ 1", df, groups=df[building_col])
+        md = smf.mixedlm(f"{diff_col} ~ 1", df, groups=df[cluster_col])
         fit = md.fit(reml=True, method="lbfgs", disp=False)
         # collect warnings
         for w in wlist:
@@ -1124,7 +858,7 @@ def mixed_effects_mu(df, building_col: str, diff_col: str, alpha: float):
         # Fall back to cluster-robust OLS CI (more honest when RE variance ~ 0 or unstable)
         X = np.ones((len(df),1))
         ols_cl = sm.OLS(df[diff_col].values, X).fit(cov_type="cluster",
-                                                    cov_kwds={"groups": df[building_col].values})
+                                                    cov_kwds={"groups": df[cluster_col].values})
         est2 = float(ols_cl.params[0]); se2 = float(ols_cl.bse[0])
         dfree = max(G-1, 1)
         tcrit = stats.t.ppf(1-alpha, dfree)
@@ -1138,68 +872,22 @@ def mixed_effects_mu(df, building_col: str, diff_col: str, alpha: float):
     ci = (est - tcrit*se, est + tcrit*se)
     return est, ci, f"Mixed-effects (statsmodels; τ²={tau2:.3g}, df≈G-1={dfree})"
 
-def cluster_robust_ols_mu(df: pd.DataFrame, building_col: str, diff_col: str, alpha: float) -> Tuple[float, Tuple[float,float]]:
-    """Estimate the mean difference with cluster-robust OLS.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Input analysis data.
-    building_col : str
-        Cluster identifier column.
-    diff_col : str
-        Response column containing paired differences.
-    alpha : float
-        One-sided significance level used to construct the confidence interval.
-
-    Returns
-    -------
-    est : float
-        Estimated mean paired difference.
-    ci : tuple of float
-        Cluster-robust confidence interval for the mean paired difference.
-    """
+def cluster_robust_ols_mu(df: pd.DataFrame, cluster_col: str, diff_col: str, alpha: float) -> Tuple[float, Tuple[float,float]]:
     X = np.ones((len(df),1))
-    fit = sm.OLS(df[diff_col].values, X).fit(cov_type="cluster", cov_kwds={"groups": df[building_col].values})
+    fit = sm.OLS(df[diff_col].values, X).fit(cov_type="cluster", cov_kwds={"groups": df[cluster_col].values})
     est = float(fit.params[0]); se = float(fit.bse[0])
-    dfree = max(df[building_col].nunique()-1,1); tcrit = stats.t.ppf(1-alpha, dfree)
+    dfree = max(df[cluster_col].nunique()-1,1); tcrit = stats.t.ppf(1-alpha, dfree)
     return est, (est - tcrit*se, est + tcrit*se)
 
 # ------------------------------ Equivalence summaries ------------------------------
 
 def equiv_table(mu: float, ci: Tuple[float,float], deltas: Iterable[float]) -> pd.DataFrame:
-    """Construct a TOST decision table across equivalence margins.
-
-    Parameters
-    ----------
-    mu : float
-        Estimated mean paired difference.
-    ci : tuple of float
-        Confidence interval for ``mu``.
-    deltas : iterable of float
-        Equivalence margins to evaluate.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Table with columns ``delta``, ``mu_hat``, ``ci_low``, ``ci_high``, and
-        ``equivalent``.
-    """
     deltas = np.array(list(deltas), float)
     lo, hi = ci
     flags = (lo > -deltas) & (hi < deltas)
     return pd.DataFrame({"delta": deltas, "mu_hat": mu, "ci_low": lo, "ci_high": hi, "equivalent": flags})
 
 def plot_ci_methods(method2ci: Dict[str, Tuple[float,Tuple[float,float]]], out_path: str):
-    """Plot confidence intervals for competing mean estimators.
-
-    Parameters
-    ----------
-    method2ci : dict
-        Mapping from method label to ``(mu, (ci_low, ci_high))`` tuples.
-    out_path : str
-        Output path for the saved figure.
-    """
     plt.figure()
     for i, (name, (mu, ci)) in enumerate(method2ci.items(), start=1):
         plt.hlines(i, ci[0], ci[1], linewidth=3)
@@ -1213,7 +901,7 @@ def plot_ci_methods(method2ci: Dict[str, Tuple[float,Tuple[float,float]]], out_p
 
 def run_pubgrade_spatial_tost(
     df: pd.DataFrame,
-    building_col: str = "building_id",
+    cluster_col: str = "cluster_id",
     x_col: str = "x",
     y_col: str = "y",
     diff_col: str = "diff",
@@ -1221,7 +909,7 @@ def run_pubgrade_spatial_tost(
     alpha: float = 0.05,
     out_dir: str = "tost_pub",
     nu_grid: Iterable[float] = (0.5,1.5,2.5),
-    per_building_nugget: bool = True,
+    per_cluster_nugget: bool = True,
     do_sensitivity: bool = True,
     moran_k: int = 4,
     bootstrap_B: int = 2000,
@@ -1229,56 +917,42 @@ def run_pubgrade_spatial_tost(
     # NEW: policy switch for spatial handling
     spatial_policy: str = "auto"
 ) -> Dict[str, object]:
-    """Run the full spatial TOST workflow with diagnostics and sensitivity checks.
+    """
+    Full, publication-grade spatial TOST workflow using Matérn REML + LR CI for μ.
 
     Parameters
     ----------
-    df : pandas.DataFrame
-        Input analysis data containing cluster identifiers, coordinates, and
-        paired differences.
-    building_col : str, default="building_id"
-        Cluster identifier column.
-    x_col : str, default="x"
-        X-coordinate column.
-    y_col : str, default="y"
-        Y-coordinate column.
-    diff_col : str, default="diff"
-        Response column containing paired differences.
-    margins : iterable of float, default=(1, 3, 5)
-        Equivalence margins to evaluate.
-    alpha : float, default=0.05
-        One-sided significance level used to construct the CI-in-TOST decision.
-    out_dir : str, default="tost_pub"
-        Output directory for diagnostic tables and figures.
-    nu_grid : iterable of float, default=(0.5, 1.5, 2.5)
-        Candidate Mat'ern smoothness values used in the REML profile search.
-    per_building_nugget : bool, default=True
-        Whether to include a nugget term inside each building block.
-    do_sensitivity : bool, default=True
-        If True, also run mixed-effects, cluster-robust OLS, and cluster
-        bootstrap sensitivity analyses.
-    moran_k : int, default=4
-        Number of nearest neighbors used in the Moran's I diagnostic.
-    bootstrap_B : int, default=2000
-        Number of bootstrap replicates used in the cluster bootstrap summary.
-    random_state : int, default=42
-        Random seed used by the bootstrap procedure.
-    spatial_policy : {"auto", "force_spatial", "force_nonspatial", "diagnose_then_nonspatial"}, default="auto"
-        Policy controlling whether the spatial model is required, skipped, or
-        selected based on diagnostics.
+    df : DataFrame with columns [cluster_id, x, y, diff]; diff in SAV units (A - B).
+    margins : sequence of Δ values to test for equivalence (e.g., range(1,101)).
+    alpha : size for CI-in-TOST; LR CI uses χ^2_1(1-2α).
+    nu_grid : candidate Matérn smoothness values for profile REML (extend if desired).
+    per_cluster_nugget : if True, include τ^2 I within each cluster block.
+    do_sensitivity : if True, also run mixed-effects, cluster OLS, and cluster bootstrap.
+    moran_k : k for k-NN weights in Moran’s I (if PySAL available).
+    bootstrap_B : cluster bootstrap replicates for μ CI.
+    random_state : RNG seed for bootstrap.
+
+    spatial_policy : {"auto","force_spatial","force_nonspatial","diagnose_then_nonspatial"}
+        - "auto" (default): run diagnostics, use spatial model if dependence is flagged, else IID.
+        - "force_spatial": skip decision and use spatial Matérn REML + LR CI.
+        - "force_nonspatial": skip spatial modeling and use non-spatial IID TOST.
+        - "diagnose_then_nonspatial": run diagnostics but ignore result; use non-spatial IID TOST.
 
     Returns
     -------
-    dict
-        Dictionary containing diagnostic summaries, fitted-model information,
-        per-method equivalence tables, policy metadata, and workflow notes.
+    dict with:
+      - 'diagnostics': overview table, Moran's I table, variogram dir, spatial_dependence(bool), reasons(list)
+      - 'model': (present if spatial model was fit) ν*, θ̂, μ̂, LR CI
+      - 'summaries': {method_name: DataFrame over Δ with μ, CI, equivalence}
+      - 'primary_method': name of the summary considered primary under the chosen policy
+      - 'policy': {'spatial_policy': <str>, 'decision_used_spatial': bool, 'reasons': [...]}
+      - 'notes': list of human-readable notes about the fit
 
     Notes
     -----
-    Under the default ``"auto"`` policy, spatial diagnostics are used to decide
-    whether the Mat'ern workflow should be treated as the primary inference path.
-    The returned ``summaries`` dictionary always contains a non-spatial baseline,
-    and may also include spatial and sensitivity-analysis results.
+    Diagnostics thresholds (conservative):
+      ICC > 0.10, or SE inflation (cluster/IID) > 1.10, or significant positive Moran's I (p<0.10),
+      or rising empirical variograms in ≥1 cluster. Adjust as needed upstream.
     """
     _ensure_dir(out_dir)
 
@@ -1286,14 +960,14 @@ def run_pubgrade_spatial_tost(
     run_diagnostics = spatial_policy in ("auto", "diagnose_then_nonspatial")
     if run_diagnostics:
         # ICC
-        icc = compute_icc(df, building_col, diff_col)
+        icc = compute_icc(df, cluster_col, diff_col)
 
         # Moran's I
-        moran_tbl = morans_I(df, building_col, x_col, y_col, diff_col, k=moran_k)
+        moran_tbl = morans_I(df, cluster_col, x_col, y_col, diff_col, k=moran_k)
 
         # Variograms (also plotted to disk)
         variograms = empirical_variograms(
-            df, building_col, x_col, y_col, diff_col,
+            df, cluster_col, x_col, y_col, diff_col,
             n_bins=8, out_dir=os.path.join(out_dir, "variograms")
         )
 
@@ -1302,7 +976,7 @@ def run_pubgrade_spatial_tost(
         iid = sm.OLS(df[diff_col].values, X).fit()
         est_iid, se_iid = float(iid.params[0]), float(iid.bse[0])
         cl  = sm.OLS(df[diff_col].values, X).fit(cov_type="cluster",
-                                                 cov_kwds={"groups": df[building_col].values})
+                                                 cov_kwds={"groups": df[cluster_col].values})
         se_cl = float(cl.bse[0])
         se_ratio = se_cl / (se_iid if se_iid>0 else np.nan)
 
@@ -1312,7 +986,7 @@ def run_pubgrade_spatial_tost(
             "se_cluster": se_cl,
             "se_inflation_ratio": se_ratio,
             "n": len(df),
-            "G": df[building_col].nunique()
+            "G": df[cluster_col].nunique()
         }])
         diag_overview.to_csv(os.path.join(out_dir, "diagnostics_overview.csv"), index=False)
         if not moran_tbl.empty:
@@ -1322,7 +996,7 @@ def run_pubgrade_spatial_tost(
         if icc > 0.10: reasons.append(f"ICC={icc:.2f}>0.10")
         if se_ratio > 1.10: reasons.append(f"SE inflation={se_ratio:.2f}>1.10")
         if not moran_tbl.empty and (moran_tbl["p_norm"]<0.10).any() and (moran_tbl["I"]>0).any():
-            reasons.append("Significant positive Moran’s I (p<0.10) in ≥1 building")
+            reasons.append("Significant positive Moran’s I (p<0.10) in ≥1 cluster")
         spatial_dep = len(reasons) > 0
 
         diagnostics = {
@@ -1337,7 +1011,7 @@ def run_pubgrade_spatial_tost(
         diagnostics = {
             "overview": pd.DataFrame([{
                 "icc": np.nan, "se_iid": np.nan, "se_cluster": np.nan,
-                "se_inflation_ratio": np.nan, "n": len(df), "G": df[building_col].nunique()
+                "se_inflation_ratio": np.nan, "n": len(df), "G": df[cluster_col].nunique()
             }]),
             "moran_table": pd.DataFrame(),
             "variograms_dir": None,
@@ -1389,10 +1063,10 @@ def run_pubgrade_spatial_tost(
 
     if use_spatial:
         # Spatial (Matérn REML + LR CI for μ)
-        best = fit_matern_reml(df, building_col, x_col, y_col, diff_col,
-                               nu_grid=nu_grid, per_building_nugget=per_building_nugget)
+        best = fit_matern_reml(df, cluster_col, x_col, y_col, diff_col,
+                               nu_grid=nu_grid, per_cluster_nugget=per_cluster_nugget)
         mu_hat = float(best["mu_hat"])
-        ci_mu = lr_ci_for_mu(df, building_col, x_col, y_col, diff_col, theta=best, alpha=alpha)
+        ci_mu = lr_ci_for_mu(df, cluster_col, x_col, y_col, diff_col, theta=best, alpha=alpha)
 
         summaries["Matérn REML + LR CI"] = equiv_table(mu_hat, ci_mu, margins)
         method2ci["Matérn REML + LR CI"] = (mu_hat, ci_mu)
@@ -1411,15 +1085,15 @@ def run_pubgrade_spatial_tost(
 
     # Sensitivity models (optional; they are informative regardless of policy)
     if do_sensitivity:
-        est_me, ci_me, me_note = mixed_effects_mu(df, building_col, diff_col, alpha)
+        est_me, ci_me, me_note = mixed_effects_mu(df, cluster_col, diff_col, alpha)
         summaries["Mixed-effects"] = equiv_table(est_me, ci_me, margins)
         method2ci[me_note] = (est_me, ci_me)
 
-        est_cl, ci_cl = cluster_robust_ols_mu(df, building_col, diff_col, alpha)
+        est_cl, ci_cl = cluster_robust_ols_mu(df, cluster_col, diff_col, alpha)
         summaries["Cluster-robust OLS"] = equiv_table(est_cl, ci_cl, margins)
         method2ci["Cluster-robust OLS"] = (est_cl, ci_cl)
 
-        est_bs, se_bs, ci_bs = cluster_bootstrap_mu(df, building_col, diff_col, B=bootstrap_B, seed=random_state)
+        est_bs, se_bs, ci_bs = cluster_bootstrap_mu(df, cluster_col, diff_col, B=bootstrap_B, seed=random_state)
         summaries[f"Cluster Bootstrap (B={bootstrap_B})"] = equiv_table(est_bs, ci_bs, margins)
         method2ci[f"Cluster Bootstrap (B={bootstrap_B})"] = (est_bs, ci_bs)
 
@@ -1455,37 +1129,40 @@ def render_one_page_report(
     ci_figure_path: str = None,
     compile_pdf: bool = True
 ):
-    """Create a compact LaTeX report summarizing spatial TOST results.
+    """
+    Create a compact 1-page LaTeX PDF report summarizing diagnostics and Δ-wise equivalence.
 
     Parameters
     ----------
     results : dict
-        Output of :func:`run_pubgrade_spatial_tost`.
-    report_margins : iterable of float
-        Margins to display in the report table.
-    out_dir : str, default="tost_pub"
-        Directory where report assets are written.
-    title : str, default="Spatially-Aware TOST Summary"
-        Report title.
-    subtitle : str, default="Publication-grade Matérn REML + LR CI, with sensitivity checks"
-        Report subtitle.
-    methods_note : str, optional
-        Additional short text appended to the default methods paragraph.
-    ci_figure_path : str, optional
-        Path to a CI-by-method figure to embed in the report.
-    compile_pdf : bool, default=True
-        If True, attempt to compile the LaTeX report to PDF.
+        Output of run_pubgrade_spatial_tost(...).
+        Expects keys: 'diagnostics', 'model', 'summaries', 'notes'.
+    report_margins : Iterable[float]
+        The Δ values to display in the report table (can differ from modeling set).
+    out_dir : str
+        Directory to write report.tex/.pdf and figures.
+    title, subtitle : str
+        Title and subtitle for the report.
+    methods_note : Optional[str]
+        If provided, appended after the default Methods paragraph (short).
+    ci_figure_path : Optional[str]
+        Path to a CI-by-method plot (PNG) to include. If None, uses
+        f"{out_dir}/mu_ci_by_method.png" if present; otherwise omits figure.
+    compile_pdf : bool
+        If True, attempts to run 'pdflatex' (and bibtex) to build a PDF.
+        If missing, .tex and .bib are left for manual compilation.
 
-    Returns
+    Outputs
     -------
-    dict
-        Paths to the generated report assets together with selected diagnostics
-        and the displayed margins.
+    Writes to `out_dir`:
+      - report.tex
+      - refs.bib
+      - (if compile_pdf=True and pdflatex found) report.pdf
 
     Notes
     -----
-    The function writes ``report.tex`` and ``refs.bib`` to ``out_dir`` and, when
-    LaTeX is available, also attempts to produce ``report.pdf``.
+    Layout: tight margins, small font, one-column table for diagnostics and Δ-equivalence.
+    The “Methods” paragraph gives a citeable, publication-grade workflow:
       - Matérn covariance + REML for (σ², ρ, τ²) with ν via profile grid [Cressie, 1993; Stein, 1999]
       - μ̂ via GLS; **likelihood-ratio CI** for μ (1 df) feeds the CI-in-TOST rule [Schuirmann, 1987; Lakens, 2017]
       - Sensitivity: mixed-effects with Kenward–Roger df [Kenward & Roger, 1997; Bates et al., 2015],
@@ -1542,7 +1219,7 @@ def render_one_page_report(
     diag_table = (
         f"ICC & {icc_str} \\\\\n"
         f"SE inflation (cluster / IID) & {se_ratio_str} \\\\\n"
-        f"# buildings (G) & {G_str} \\\\\n"
+        f"# clusters (G) & {G_str} \\\\\n"
         f"# bldgs with sig. Moran's I (p<0.10) & {moran_pos} \\\\\n"
         f"Reasons flagged & {(', '.join(reasons) if reasons else 'None')} \\\\\n"
     )
@@ -1551,9 +1228,9 @@ def render_one_page_report(
     methods_txt = textwrap.dedent(r"""
         \textbf{Estimand \& test.} We test equivalence of the population mean difference $\mu$ (SAV units) using the CI-based TOST rule \cite{Schuirmann1987,Lakens2017}: for margin $\Delta$, declare equivalence iff the $(1-2\alpha)$ CI for $\mu$ lies entirely within $[-\Delta,+\Delta]$.
 
-        \textbf{Spatial model.} We model spatial dependence within buildings using a Gaussian process with Matérn covariance $C(h)$ \cite{Cressie1993,Stein1999}; hyper-parameters $(\sigma^2,\rho,\tau^2)$ are estimated by REML \cite{Harville1977} with $\nu$ chosen by profile REML over a small grid. The GLS estimator is $\hat\mu=(\mathbf{1}^\top\Sigma^{-1}\mathbf{y})/(\mathbf{1}^\top\Sigma^{-1}\mathbf{1})$; uncertainty for $\mu$ uses a 1-df likelihood-ratio CI obtained by inverting the profile likelihood with $\Sigma$ fixed at $\hat\theta$.
+        \textbf{Spatial model.} We model spatial dependence within clusters using a Gaussian process with Matérn covariance $C(h)$ \cite{Cressie1993,Stein1999}; hyper-parameters $(\sigma^2,\rho,\tau^2)$ are estimated by REML \cite{Harville1977} with $\nu$ chosen by profile REML over a small grid. The GLS estimator is $\hat\mu=(\mathbf{1}^\top\Sigma^{-1}\mathbf{y})/(\mathbf{1}^\top\Sigma^{-1}\mathbf{1})$; uncertainty for $\mu$ uses a 1-df likelihood-ratio CI obtained by inverting the profile likelihood with $\Sigma$ fixed at $\hat\theta$.
 
-        \textbf{Sensitivity.} We report (i) mixed-effects with random intercept by building and Kenward--Roger df if available \cite{Kenward1997,Bates2015}; (ii) cluster-robust OLS (buildings as clusters) with small-$G$ caution \cite{Bell2002,Pustejovsky2018}; and (iii) cluster (block) bootstrap CIs for $\mu$ \cite{Davison1997}. Diagnostics include ICC, Moran's $I$, empirical variograms, and IID vs clustered SE inflation.
+        \textbf{Sensitivity.} We report (i) mixed-effects with random intercept by cluster and Kenward--Roger df if available \cite{Kenward1997,Bates2015}; (ii) cluster-robust OLS (clusters as clusters) with small-$G$ caution \cite{Bell2002,Pustejovsky2018}; and (iii) cluster (block) bootstrap CIs for $\mu$ \cite{Davison1997}. Diagnostics include ICC, Moran's $I$, empirical variograms, and IID vs clustered SE inflation.
     """).strip()
     if methods_note:
         methods_txt += " " + methods_note
@@ -1709,34 +1386,31 @@ class SpatialConfig:
     ----------
     nu_grid
         Candidate Matérn smoothness values ν considered in the REML profile search.
-    per_building_nugget
-        Whether to include a nugget term (τ² I) inside each building block.
+    per_cluster_nugget
+        Whether to include a nugget term (τ² I) inside each cluster block.
     verbose_diagnostics
         If True, print diagnostic summaries that help detect covariance/SE
         pathologies (e.g., variance collapse) and compare estimands.
     """
 
     nu_grid: Tuple[float, ...] = (0.5, 1.5, 2.5)
-    per_building_nugget: bool = True
+    per_cluster_nugget: bool = True
     verbose_diagnostics: bool = False
 
-
 class SpatialTOST:
-    """Spatial TOST engine using Matérn GLS with REML fitting.
+    """
+    Publication-grade spatial TOST using Matérn GLS (REML) + LR CI for μ.
 
     Parameters
     ----------
     y : str
-        Response column containing paired differences.
+        Response column name (paired difference), e.g., "diff".
     cluster : str
-        Cluster identifier column used to define block-diagonal covariance
-        structure.
-    x : str
-        X-coordinate column.
-    ycoord : str
-        Y-coordinate column.
-    config : SpatialConfig, optional
-        Configuration controlling the REML search and diagnostic verbosity.
+        Cluster/group id column name. Required because Σ is block-diagonal by cluster.
+    x, ycoord : str
+        Spatial coordinate column names.
+    config : SpatialConfig
+        REML fit settings.
     """
 
     def __init__(
@@ -1754,22 +1428,13 @@ class SpatialTOST:
         self.config = config or SpatialConfig()
 
     def fit(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame:
-        """Fit the spatial TOST engine across one or more equivalence margins.
-
-        Parameters
-        ----------
-        df : pandas.DataFrame
-            Input analysis data.
-        alpha : float
-            One-sided significance level used to form the confidence interval.
-        margins : list of float
-            Equivalence margins to evaluate.
+        """
+        Fit the Matérn GLS model and compute CI-in-TOST decisions across margins.
 
         Returns
         -------
-        pandas.DataFrame
-            Table with columns ``delta``, ``mu_hat``, ``ci_low``, ``ci_high``,
-            ``equivalent``, and ``method``.
+        DataFrame
+            Columns: delta, mu_hat, ci_low, ci_high, equivalent, method
         """
         for col in (self.y, self.cluster, self.x, self.ycoord):
             if col not in df.columns:
@@ -1780,7 +1445,7 @@ class SpatialTOST:
 
         dfp = df.rename(
             columns={
-                self.cluster: "building_id",
+                self.cluster: "cluster_id",
                 self.y: "diff",
                 self.x: "x",
                 self.ycoord: "y",
@@ -1794,12 +1459,12 @@ class SpatialTOST:
 
         theta = fit_matern_reml(
             df=dfp,
-            building_col="building_id",
+            cluster_col="cluster_id",
             x_col="x",
             y_col="y",
             diff_col="diff",
             nu_grid=self.config.nu_grid,
-            per_building_nugget=self.config.per_building_nugget,
+            per_cluster_nugget=self.config.per_cluster_nugget,
         )
         #from pprint import pprint
         #pprint(f"theta: {theta}")
@@ -1808,10 +1473,10 @@ class SpatialTOST:
         if self.config.verbose_diagnostics:
             # (1) Simple means
             mean_all = float(dfp["diff"].mean())
-            mean_building_eq = float(dfp.groupby("building_id")["diff"].mean().mean())
+            mean_cluster_eq = float(dfp.groupby("cluster_id")["diff"].mean().mean())
             print("[Spatial diagnostics]")
             print(f"  diff.mean()={mean_all:.6g}")
-            print(f"  building-equal-weight mean={mean_building_eq:.6g}")
+            print(f"  cluster-equal-weight mean={mean_cluster_eq:.6g}")
 
             # (2) Fitted covariance + conditional var(mu_hat)
             sigma2 = float(theta.get("sigma2", float("nan")))
@@ -1826,7 +1491,7 @@ class SpatialTOST:
 
         ci_low, ci_high = lr_ci_for_mu(
             df=dfp,
-            building_col="building_id",
+            cluster_col="cluster_id",
             x_col="x",
             y_col="y",
             diff_col="diff",

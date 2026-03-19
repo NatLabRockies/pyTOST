@@ -1,9 +1,17 @@
-"""Utilities for loading and saving synthetic-data parameter specifications.
+"""Utilities for loading optimized synthetic-data parameters.
 
-This module provides helpers for normalizing parameter JSON produced by the
-synthetic-data calibration scripts and for filtering parameter mappings to the
-keyword arguments accepted by a target generator function. It also includes
-lightweight JSON writers used by several optimization scripts.
+Key behavior
+------------
+Optimization outputs in this project appear in a few shapes:
+
+1) Plain params dict (keys are generator kwargs)
+2) {"best": <EvalResult-like dict>} or {"best": {"params": {...}}}
+3) Full EvalResult-like dict with a top-level "params" key
+4) Any of the above with an auxiliary "_meta" block inside the params
+
+`load_params` normalizes all of these to a single params dict suitable
+to pass into the synthetic data generators (after optional filtering via
+`kwargs_for`).
 """
 
 from __future__ import annotations
@@ -15,31 +23,7 @@ from typing import Any, Callable, Mapping
 
 
 def _unwrap_params(obj: Any) -> dict[str, Any]:
-    """Extract a parameter mapping from common optimization-result shapes.
-
-    Parameters
-    ----------
-    obj : Any
-        Parsed JSON-like object to normalize. Expected inputs are typically
-        dictionaries produced by the synthetic-data calibration scripts.
-
-    Returns
-    -------
-    dict of str to Any
-        Unwrapped parameter dictionary.
-
-    Raises
-    ------
-    TypeError
-        If ``obj`` is not dictionary-like at the top level or if repeated
-        unwrapping does not terminate in a dictionary.
-
-    Notes
-    -----
-    The function descends through several wrapper patterns that occur in saved
-    optimization results, including top-level ``"best"`` and ``"params"``
-    keys.
-    """
+    """Best-effort extraction of a params dict from common result shapes."""
     if not isinstance(obj, dict):
         raise TypeError(f"Expected dict-like JSON at top level; got {type(obj)}")
 
@@ -61,22 +45,21 @@ def _unwrap_params(obj: Any) -> dict[str, Any]:
     return dict(cur)
 
 
-
 def load_params(path: str | Path) -> dict[str, Any]:
-    """Load a JSON file and return a normalized parameter dictionary.
+    """Load a JSON file produced by the optimization routines.
 
     Parameters
     ----------
-    path : str or pathlib.Path
-        Path to a JSON file. Supported top-level shapes include a plain
-        parameter dictionary, ``{"params": {...}}``, ``{"best": {...}}``,
-        and ``{"best": {"params": {...}}}``.
+    path
+        Path to a JSON file. Supported shapes include:
+        - a plain dict of parameters
+        - {"params": {...}} (EvalResult-like)
+        - {"best": {...}} or {"best": {"params": {...}}}
 
     Returns
     -------
-    dict of str to Any
-        Parameter dictionary suitable for passing to a synthetic-data generator.
-        Private metadata stored in an ``"_meta"`` key is removed if present.
+    dict
+        Parameters with the private ``_meta`` block removed.
     """
     path = Path(path)
     with path.open("r", encoding="utf-8") as f:
@@ -87,45 +70,15 @@ def load_params(path: str | Path) -> dict[str, Any]:
     return params
 
 
-
 def kwargs_for(func: Callable[..., Any], params: Mapping[str, Any]) -> dict[str, Any]:
-    """Filter a parameter mapping to the keyword arguments accepted by a function.
-
-    Parameters
-    ----------
-    func : callable
-        Target callable whose signature defines the accepted keyword arguments.
-    params : mapping of str to Any
-        Candidate parameter mapping.
-
-    Returns
-    -------
-    dict of str to Any
-        Subset of ``params`` whose keys are present in the signature of
-        ``func``.
-    """
+    """Filter a params mapping down to kwargs accepted by ``func``."""
     sig = inspect.signature(func)
     allowed = set(sig.parameters.keys())
     return {k: params[k] for k in params.keys() if k in allowed}
 
 
-
 def validate_required_kwargs(func: Callable[..., Any], kwargs: Mapping[str, Any]) -> None:
-    """Validate that a mapping contains all required keyword arguments.
-
-    Parameters
-    ----------
-    func : callable
-        Target callable whose signature is used for validation.
-    kwargs : mapping of str to Any
-        Candidate keyword-argument mapping.
-
-    Raises
-    ------
-    TypeError
-        If one or more required parameters in the signature of ``func`` are not
-        present in ``kwargs``.
-    """
+    """Raise a readable error if any required parameters for `func` are missing."""
     sig = inspect.signature(func)
     missing = []
     for name, p in sig.parameters.items():
@@ -141,35 +94,12 @@ def validate_required_kwargs(func: Callable[..., Any], kwargs: Mapping[str, Any]
 
 # cluster
 def save_best_json(best_kwargs: Dict[str, Any], path: str) -> None:
-    """Write a plain parameter dictionary to JSON.
-
-    Parameters
-    ----------
-    best_kwargs : dict of str to Any
-        Best-performing generator keyword arguments.
-    path : str
-        Output path for the JSON file.
-
-    Notes
-    -----
-    This writer stores only the generator keyword arguments and does not wrap
-    them in any additional metadata structure.
-    """
     # Save ONLY generator kwargs (no extra wrapper keys)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(dict(best_kwargs), f, indent=2, sort_keys=True)
 
 # spatial
 def save_best_spatial(best: EvalResult, path: str) -> None:
-    """Write a spatial optimization result to JSON.
-
-    Parameters
-    ----------
-    best : EvalResult
-        Best spatial optimization result object.
-    path : str
-        Output path for the JSON file.
-    """
     payload = {
         "ok_pattern": best.ok_pattern,
         "score": best.score,
@@ -191,15 +121,6 @@ def save_best_spatial(best: EvalResult, path: str) -> None:
 
 # temporal
 def save_best(best: EvalResult, path: str) -> None:
-    """Write a temporal optimization result to JSON.
-
-    Parameters
-    ----------
-    best : EvalResult
-        Best temporal optimization result object.
-    path : str
-        Output path for the JSON file.
-    """
     payload = {
         "ok_pattern": best.ok_pattern,
         "score": best.score,
@@ -220,15 +141,6 @@ def save_best(best: EvalResult, path: str) -> None:
 
 # spatio-temporal
 def save_best(best: EvalResult, path: str) -> None:
-    """Write a spatiotemporal optimization result to JSON.
-
-    Parameters
-    ----------
-    best : EvalResult
-        Best spatiotemporal optimization result object.
-    path : str
-        Output path for the JSON file.
-    """
     payload = {
         "ok_pattern": best.ok_pattern,
         "score": best.score,
@@ -249,3 +161,6 @@ def save_best(best: EvalResult, path: str) -> None:
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
+
+
+

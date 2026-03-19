@@ -1,11 +1,18 @@
 
-"""Utilities for tuning spatial synthetic-data parameters for demonstration cases.
+"""
+Optimization routine to find synthetic spatial data-generation parameters that yield:
+  - IID engine: TOST passes at margin delta=1
+  - Cluster engine: TOST passes at margin delta=1
+  - Spatial(pubgrade) engine: TOST fails at margin delta=1
 
-This module searches over spatial data-generation settings to find examples where
-IID and clustered equivalence tests declare equivalence at a target margin while
-a spatial dependence-aware analysis does not. The routines are intended for
-development, benchmarking, and example construction rather than routine package
-workflows.
+This module is designed to work with the *current* local versions of:
+  - synthetic_tost_data.generate_spatial_clusters
+  - iid_tost.IIDTOST
+  - cluster_tost.ClusterTOST
+  - spatial_tost.SpatialTOST
+
+It performs a stochastic search (random + adaptive narrowing) and returns the best
+parameter set found, plus diagnostic summaries.
 """
 
 from __future__ import annotations
@@ -27,43 +34,6 @@ from ..engines import spatial_tost
 
 @dataclass
 class SearchSpace:
-    """Parameter bounds and sampling rules for the spatial search routine.
-
-    Attributes
-    ----------
-    n_clusters_min, n_clusters_max : int
-        Inclusive bounds on the number of clusters to generate.
-    points_per_cluster_min, points_per_cluster_max : int
-        Inclusive bounds on the number of locations generated within each cluster.
-    target_total_n : int
-        Approximate total sample size used to bias the search toward tractable
-        problem sizes.
-    target_total_n_jitter : int
-        Random perturbation applied around ``target_total_n`` when sampling
-        candidate configurations.
-    cluster_radius_min, cluster_radius_max : float
-        Bounds on within-cluster spatial extent.
-    length_scale_min, length_scale_max : float
-        Bounds on the spatial correlation length scale.
-    field_sd_min, field_sd_max : float
-        Bounds on the latent spatial field standard deviation.
-    nugget_sd_min, nugget_sd_max : float
-        Bounds on the nugget-scale noise standard deviation.
-    delta_true_min, delta_true_max : float
-        Bounds on the true mean paired difference used in the generator.
-    meas_field_sd_min, meas_field_sd_max : float
-        Bounds on arm-specific measurement field variability.
-    meas_shared_min, meas_shared_max : float
-        Bounds on the shared measurement component between arms.
-    baseline_global_prob, meas_global_prob : float
-        Probabilities for enabling global baseline and measurement-field effects.
-    center_global_meas_field_prob : float
-        Probability of enabling a cluster-center global measurement field when
-        supported by the generator signature.
-    building_center_sd_min, building_center_sd_max : float
-        Bounds on the standard deviation of cluster-center perturbations when
-        supported by the generator signature.
-    """
     # Integers
     n_clusters_min: int = 4
     n_clusters_max: int = 12
@@ -103,24 +73,10 @@ class SearchSpace:
 
     # Optional new knobs (if present in generator signature)
     center_global_meas_field_prob: float = 0.50
-    building_center_sd_min: float = 0.0
-    building_center_sd_max: float = 10.0
+    cluster_center_sd_min: float = 0.0
+    cluster_center_sd_max: float = 10.0
 
     def sample(self, rng: np.random.Generator) -> Dict[str, Any]:
-        """Draw one candidate parameter dictionary from the search space.
-
-        Parameters
-        ----------
-        rng : numpy.random.Generator
-            Random number generator used to sample a candidate configuration.
-
-        Returns
-        -------
-        dict of str to Any
-            Parameter dictionary compatible with
-            ``synthetic_tost_data.generate_spatial_clusters`` when filtered to
-            supported keyword arguments.
-        """
         d: Dict[str, Any] = {}
                 # Keep total N moderate to keep SpatialTOST iterations fast.
         n_clusters = int(rng.integers(self.n_clusters_min, self.n_clusters_max + 1))
@@ -149,35 +105,13 @@ class SearchSpace:
 
         # Optional knobs (only used if generator supports them)
         d["center_global_meas_field"] = bool(rng.random() < self.center_global_meas_field_prob)
-        d["building_center_sd"] = float(rng.uniform(self.building_center_sd_min, self.building_center_sd_max))
+        d["cluster_center_sd"] = float(rng.uniform(self.cluster_center_sd_min, self.cluster_center_sd_max))
         return d
 
 
 @dataclass
 class EvalResult:
-    """Container for the evaluation of one sampled parameter configuration.
-
-    Attributes
-    ----------
-    ok_pattern : bool
-        Whether the target decision pattern was achieved.
-    score : float
-        Optimization score, where smaller values are preferred.
-    params : dict of str to Any
-        Generator parameters used for this evaluation.
-    ci_iid, ci_cluster, ci_spatial : tuple of float
-        Confidence interval bounds from the IID, clustered, and spatial engines.
-    eq_iid, eq_cluster, eq_spatial : bool
-        Equivalence decisions from the IID, clustered, and spatial engines.
-    mu_hat_iid, mu_hat_cluster, mu_hat_spatial : float
-        Estimated mean paired differences from each engine.
-    df_fingerprint : str, optional
-        Hash fingerprint for the derived difference data frame.
-    module_versions : dict of str to str, optional
-        Module file paths recorded for reproducibility diagnostics.
-    notes : str, optional
-        Free-form note about screening, early exit, or evaluation errors.
-    """
+    """Container for one candidate's evaluation results."""
     ok_pattern: bool
     score: float
     params: Dict[str, Any]
@@ -201,39 +135,26 @@ class EvalResult:
 
 
 def _make_diff_df(df_long: pd.DataFrame) -> pd.DataFrame:
-    """Convert long-format paired observations into a difference data frame.
+    """
+    Convert tidy long A/B rows to a per-location diff dataframe.
 
-    Parameters
-    ----------
-    df_long : pandas.DataFrame
-        Long-format table containing paired observations with columns including
-        ``sample_id``, ``arm``, ``y``, cluster identifiers, and spatial
-        coordinates.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Table with columns ``sample_id``, ``group_id``, ``x``, ``y``, and
-        ``diff`` suitable for downstream TOST engines.
-
-    Raises
-    ------
-    ValueError
-        If the required identifier, arm, response, cluster, or coordinate
-        columns are not present.
+    Expects:
+      - columns: sample_id, arm in {'A','B'}, y, group_id, x, y_sp (or y)
+    Returns:
+      - columns: sample_id, group_id, x, y, diff
     """
     if "sample_id" not in df_long.columns or "arm" not in df_long.columns or "y" not in df_long.columns:
         raise ValueError("df_long missing required columns: sample_id, arm, y")
 
     # Coordinates + group from arm A (shared locations)
     coord_cols = ["sample_id"]
-    for c in ["group_id", "building_id", "cluster_id"]:
+    for c in ["group_id", "cluster_id", "cluster_id"]:
         if c in df_long.columns:
             coord_cols.append(c)
             group_col = c
             break
     else:
-        raise ValueError("df_long must contain a cluster column (e.g., group_id or building_id).")
+        raise ValueError("df_long must contain a cluster column (e.g., group_id or cluster_id).")
 
     # spatial coords
     if "x" not in df_long.columns:
@@ -264,31 +185,28 @@ def _run_one(
     spatial_config: Optional["spatial_tost.SpatialConfig"] = None,
     prescreen_buffer: float = 0.15,
 ) -> EvalResult:
-    """Evaluate one generated spatial dataset against the target decision pattern.
+    """
+    Evaluate a single generated dataset.
+
+    Design goal: keep the expensive spatial fit (Matérn REML + LR CI) rare.
+
+    Screening:
+      1) IID must pass equivalence at Δ=margin
+      2) Cluster must pass equivalence at Δ=margin
+      3) Only then, run spatial *if* the cluster CI is "near" the equivalence boundary.
 
     Parameters
     ----------
-    df_diff : pandas.DataFrame
-        Difference table with columns ``diff``, ``group_id``, ``x``, and ``y``.
-    seed : int
-        Random seed forwarded to workflow components that support stochastic
-        validation steps.
-    alpha : float
-        Significance level used to construct the TOST confidence interval.
-    margin : float
-        Single equivalence margin to evaluate.
-    spatial_config : spatial_tost.SpatialConfig, optional
-        Spatial configuration forwarded to the workflow spatial engine.
-    prescreen_buffer : float, default=0.15
-        Buffer inside the equivalence region used to skip expensive spatial fits
-        when the clustered confidence interval is already comfortably inside the
-        equivalence bounds.
-
-    Returns
-    -------
-    EvalResult
-        Evaluation summary for the dataset, including confidence intervals,
-        equivalence decisions, and screening notes.
+    df_diff
+        Wide-ish diff frame with columns: diff, group_id, x, y.
+    alpha, margin
+        TOST settings for a single Δ=margin.
+    spatial_config
+        Optional SpatialConfig forwarded to workflow.run_tost(engine="spatial").
+    prescreen_buffer
+        If the cluster CI lies wholly inside (-margin+buffer, margin-buffer),
+        we skip the spatial fit because spatial is unlikely to flip the decision.
+        Smaller -> more spatial fits (safer but slower).
     """
     # IID
     iid = iid_tost.IIDTOST(y="diff")
@@ -430,30 +348,21 @@ def evaluate_params(
     prescreen_buffer: float = 0.15,
     spatial_config: Optional["spatial_tost.SpatialConfig"] = None,
 ) -> EvalResult:
-    """Generate a spatial dataset and evaluate the target equivalence pattern.
+    """
+    Generate a spatial synthetic dataset and evaluate the target decision pattern.
 
-    Parameters
-    ----------
-    params : dict of str to Any
-        Candidate generator parameters. Unsupported keys are ignored when
-        calling the spatial synthetic-data generator.
-    seed : int, default=0
-        Seed used for data generation and downstream stochastic components.
-    alpha : float, default=0.05
-        Significance level used for TOST inference.
-    margin : float, default=1.0
-        Equivalence margin used to define the target decision pattern.
-    prescreen_buffer : float, default=0.15
-        Buffer used to decide whether the expensive spatial fit should be
-        skipped after clustered prescreening.
-    spatial_config : spatial_tost.SpatialConfig, optional
-        Spatial engine configuration passed through to the workflow.
+    Target pattern at Δ = `margin`
+    ------------------------------
+      - IID: equivalent (pass)
+      - Cluster: equivalent (pass)
+      - Spatial: NOT equivalent (fail)
 
-    Returns
-    -------
-    EvalResult
-        Evaluation result populated with reproducibility metadata and the
-        engine-specific inference summaries.
+    Performance strategy
+    --------------------
+    Spatial (Matérn REML + LR CI) is expensive. We therefore:
+      1) run IID and Cluster first (cheap),
+      2) only attempt Spatial if those pass and the cluster CI is close to the
+         equivalence boundary (controlled by `prescreen_buffer`).
     """
     gen = synthetic_tost_data.generate_spatial_clusters
     sig = inspect.signature(gen)
@@ -520,30 +429,12 @@ def search(
     space: Optional[SearchSpace] = None,
     verbose_every: int = 25,
 ) -> Tuple[EvalResult, List[EvalResult]]:
-    """Run a stochastic search for a useful spatial demonstration scenario.
-
-    Parameters
-    ----------
-    seed : int, default=0
-        Seed for the search-level random number generator.
-    n_iter : int, default=400
-        Maximum number of candidate configurations to evaluate.
-    alpha : float, default=0.05
-        Significance level used for each TOST evaluation.
-    margin : float, default=1.0
-        Equivalence margin used in the optimization target.
-    space : SearchSpace, optional
-        Search-space specification. If omitted, a default ``SearchSpace`` is
-        used.
-    verbose_every : int, default=25
-        Frequency, in iterations, for printing progress updates.
+    """
+    Stochastic search over generator parameters.
 
     Returns
     -------
-    best : EvalResult
-        Best candidate found during the search.
-    history : list of EvalResult
-        Evaluation history in the order candidates were assessed.
+    best, history
     """
     rng = np.random.default_rng(seed)
     space = space or SearchSpace()
@@ -555,7 +446,7 @@ def search(
         params = space.sample(rng)
 
         # Encourage challenging cases:
-        # - ensure some cross-building dependence via global fields often
+        # - ensure some cross-cluster dependence via global fields often
         # - keep true delta near boundary (harder)
         if rng.random() < 0.50:
             params["delta"] = float(rng.uniform(0.85, 0.99))
@@ -603,24 +494,13 @@ def search(
 
 
 def save_best(best: EvalResult, path: str, *, alpha: float = 0.05, margin: float = 1.0) -> None:
-    """Save the best result to JSON after a reproducibility check.
+    """
+    Save best params, but only if they reproduce.
 
-    Parameters
+    Repro check
     ----------
-    best : EvalResult
-        Best evaluation result to serialize.
-    path : str
-        Output path for the JSON payload.
-    alpha : float, default=0.05
-        Significance level used when re-running the reproducibility check.
-    margin : float, default=1.0
-        Equivalence margin used when re-running the reproducibility check.
-
-    Raises
-    ------
-    ValueError
-        If the result does not contain a reproducible integer seed or if the
-        reproduced confidence intervals do not match within tolerance.
+    Immediately re-run `evaluate_params` using the saved params and the saved seed
+    (if present) and verify the key CIs match (within tolerance). If not, we do not save.
     """
     # Require a deterministic seed to be present for reproducibility checks.
     seed = None
