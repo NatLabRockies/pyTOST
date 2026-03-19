@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyTOST"
+version = "0.15.0"
+description = "Dependence-aware equivalence testing with validation for IID, clustered, temporal, spatial, and spatiotemporal data."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "pyTOST contributors"}
+]
+dependencies = [
+  "numpy>=1.23",
+  "pandas>=1.5",
+  "scipy>=1.10",
+  "statsmodels>=0.14",
+  "matplotlib>=3.7",
+  "nbformat>=5.9",
+  "esda>=2.5",
+  "libpysal>=4.8",
+  "rpy2>=3.5",
+]
+keywords = ["equivalence testing", "TOST", "statistics", "spatial", "spatiotemporal", "time series"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[project.urls]
+Homepage = "https://github.com/placeholder/pyTOST"
+Repository = "https://github.com/placeholder/pyTOST"
+Issues = "https://github.com/placeholder/pyTOST/issues"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyTOST*"]
+exclude = ["__MACOSX*", "tests*", "docs*"]
+
+[tool.setuptools.package-data]
+pyTOST = ["data_gen/*.json"]
+
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[tool.pixi.dependencies]
+r-base = ">=4.0"
+numpy = "*"
+pandas = "*"
+scipy = "*"
+statsmodels = "*"
+matplotlib = "*"
+esda = "*"
+libpysal = "*"
+
+[tool.pixi.pypi-dependencies]
+pyTOST = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { features = [], solve-group = "default" }
+test = { features = ["test"], solve-group = "default" }
+
+[tool.pixi.tasks]
+smoke = "python -c \"import pyTOST; print('pyTOST import OK')\""
+demo = "python -c \"import nbformat; print('notebook deps OK')\""
+
+[tool.pixi.feature.test.tasks]
+test = "pytest -q"
