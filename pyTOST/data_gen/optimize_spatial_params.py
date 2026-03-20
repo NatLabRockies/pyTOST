@@ -18,6 +18,7 @@ parameter set found, plus diagnostic summaries.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, List
 import inspect
 import json
@@ -27,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from . import synthetic_tost_data
+from .params_io import save_best
 from ..engines import iid_tost
 from ..engines import cluster_tost
 from ..engines import spatial_tost
@@ -399,11 +401,11 @@ def evaluate_params(
     # Module file paths for debugging mismatches
     module_versions: Dict[str, str] = {}
     for mod in (iid_tost, cluster_tost, spatial_tost):
-        module_versions[mod.__name__] = str(getattr(mod, "__file__", ""))
+        module_versions[mod.__name__] = Path(str(getattr(mod, "__file__", ""))).name
 
     try:
         from .. import workflow as _wf  # type: ignore
-        module_versions[_wf.__name__] = str(getattr(_wf, "__file__", ""))
+        module_versions[_wf.__name__] = Path(str(getattr(_wf, "__file__", ""))).name
     except Exception:
         pass
 
@@ -493,66 +495,9 @@ def search(
     return best, hist
 
 
-def save_best(best: EvalResult, path: str, *, alpha: float = 0.05, margin: float = 1.0) -> None:
-    """
-    Save best params, but only if they reproduce.
-
-    Repro check
-    ----------
-    Immediately re-run `evaluate_params` using the saved params and the saved seed
-    (if present) and verify the key CIs match (within tolerance). If not, we do not save.
-    """
-    # Require a deterministic seed to be present for reproducibility checks.
-    seed = None
-    if isinstance(best.params, dict) and "seed" in best.params:
-        try:
-            seed = int(best.params["seed"])
-        except Exception:
-            seed = None
-    if seed is None:
-        raise ValueError(
-            "Refusing to save: best.params does not contain a reproducible integer 'seed'. "
-            "Update the optimizer to store the evaluation seed in params."
-        )
-
-    rerun = evaluate_params(best.params, seed=seed, alpha=alpha, margin=margin)
-
-    def _close(a: tuple[float, float], b: tuple[float, float], tol: float = 1e-6) -> bool:
-        return (abs(a[0] - b[0]) <= tol) and (abs(a[1] - b[1]) <= tol)
-
-    # IID/cluster should always reproduce exactly; spatial may be numerically noisier but should be very close.
-    if not _close(best.ci_iid, rerun.ci_iid, tol=1e-6):
-        raise ValueError(f"Refusing to save: IID CI not reproducible. saved={best.ci_iid} rerun={rerun.ci_iid}")
-    if not _close(best.ci_cluster, rerun.ci_cluster, tol=1e-6):
-        raise ValueError(f"Refusing to save: Cluster CI not reproducible. saved={best.ci_cluster} rerun={rerun.ci_cluster}")
-    if (not np.isnan(best.ci_spatial[0])) and (not np.isnan(rerun.ci_spatial[0])):
-        if not _close(best.ci_spatial, rerun.ci_spatial, tol=1e-4):
-            raise ValueError(f"Refusing to save: Spatial CI not reproducible. saved={best.ci_spatial} rerun={rerun.ci_spatial}")
-
-    payload = {
-        "ok_pattern": bool(best.ok_pattern),
-        "score": float(best.score),
-        "params": dict(best.params),
-        "ci_iid": tuple(map(float, best.ci_iid)),
-        "ci_cluster": tuple(map(float, best.ci_cluster)),
-        "ci_spatial": tuple(map(float, best.ci_spatial)),
-        "eq_iid": bool(best.eq_iid),
-        "eq_cluster": bool(best.eq_cluster),
-        "eq_spatial": bool(best.eq_spatial),
-        "mu_hat_iid": float(best.mu_hat_iid),
-        "mu_hat_cluster": float(best.mu_hat_cluster),
-        "mu_hat_spatial": float(best.mu_hat_spatial),
-        "df_fingerprint": best.df_fingerprint,
-        "module_versions": best.module_versions or {},
-        "notes": best.notes,
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-
-
 
 if __name__ == "__main__":
     best, hist = search(seed=0, n_iter=400, alpha=0.05, margin=1.0)
     print("Best:")
     print(best)
-    save_best(best, "best_params.json")
+    save_best(best, "best_params.json", validator=evaluate_params, alpha=0.05, margin=1.0, compare_tol=1e-4)

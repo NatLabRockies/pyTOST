@@ -80,6 +80,7 @@ import pandas as pd
 from scipy import linalg, optimize, stats
 
 from . import synthetic_tost_data
+from .params_io import save_best
 from ..engines import iid_tost, cluster_tost, spatial_tost
 
 
@@ -994,39 +995,6 @@ def validate_with_full_engine(
 # ---------------------------------------------------------------------------
 # Save / load
 # ---------------------------------------------------------------------------
-
-def save_best(best: EvalResult, path: str) -> None:
-    """Serialize best result to JSON.
-
-    Parameters
-    ----------
-    best : EvalResult
-        Winning candidate.
-    path : str
-        Output JSON file path.
-    """
-    payload = {
-        "ok_pattern": bool(best.ok_pattern),
-        "score": float(best.score),
-        "params": {k: v for k, v in best.params.items()
-                   if not isinstance(v, (pd.DataFrame, np.ndarray))},
-        "ci_iid": list(map(float, best.ci_iid)),
-        "ci_cluster": list(map(float, best.ci_cluster)),
-        "ci_spatial": list(map(float, best.ci_spatial)),
-        "ci_spatiotemporal": list(map(float, best.ci_spatiotemporal)),
-        "eq_iid": bool(best.eq_iid),
-        "eq_cluster": bool(best.eq_cluster),
-        "eq_spatial": bool(best.eq_spatial),
-        "eq_spatiotemporal": bool(best.eq_spatiotemporal),
-        "mu_hat_iid": float(best.mu_hat_iid),
-        "mu_hat_cluster": float(best.mu_hat_cluster),
-        "mu_hat_spatial": float(best.mu_hat_spatial),
-        "mu_hat_spatiotemporal": float(best.mu_hat_spatiotemporal),
-        "notes": str(best.notes),
-    }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-    print(f"Saved to {path}")
 
 
 # ---------------------------------------------------------------------------

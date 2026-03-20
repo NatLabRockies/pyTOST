@@ -16,10 +16,10 @@
   "eq_iid": true,
   "eq_spatial": false,
   "module_versions": {
-    "pyTOST.engines.cluster_tost": "/Users/dhetting/src/pyTOST/pyTOST/engines/cluster_tost.py",
-    "pyTOST.engines.iid_tost": "/Users/dhetting/src/pyTOST/pyTOST/engines/iid_tost.py",
-    "pyTOST.engines.spatial_tost": "/Users/dhetting/src/pyTOST/pyTOST/engines/spatial_tost.py",
-    "pyTOST.workflow": "/Users/dhetting/src/pyTOST/pyTOST/workflow.py"
+    "pyTOST.engines.cluster_tost": "cluster_tost.py",
+    "pyTOST.engines.iid_tost": "iid_tost.py",
+    "pyTOST.engines.spatial_tost": "spatial_tost.py",
+    "pyTOST.workflow": "workflow.py"
   },
   "mu_hat_cluster": 0.6390793292849554,
   "mu_hat_iid": 0.6390793292849554,
@@ -28,8 +28,8 @@
   "ok_pattern": true,
   "params": {
     "baseline_global": false,
-    "cluster_center_sd": 5.135484707440701,
     "center_global_meas_field": false,
+    "cluster_center_sd": 5.135484707440701,
     "cluster_radius": 0.7903255148059561,
     "delta": 0.9521330650917972,
     "field_sd": 0.3184604361108216,
