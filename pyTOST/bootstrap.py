@@ -80,14 +80,14 @@ def cluster_bootstrap(
 
 
 # -----------------------------------------------------------------------------
-# Spatial block bootstrap (for cross-building spatial dependence)
+# Spatial block bootstrap (for cross-cluster spatial dependence)
 # -----------------------------------------------------------------------------
 
 def spatial_block_bootstrap(
     df: pd.DataFrame,
     *,
     y: str,
-    building_col: str,
+    cluster_col: str,
     x_col: str,
     y_col: str,
     fit_fn: Callable[[pd.DataFrame], float],
@@ -101,21 +101,21 @@ def spatial_block_bootstrap(
     Purpose
     -------
     ``cluster_bootstrap`` is appropriate when clusters are independent. When the
-    data-generating mechanism includes *cross-building* spatial dependence (e.g.
-    a global field defined over building centroids), resampling buildings IID can
+    data-generating mechanism includes *cross-cluster* spatial dependence (e.g.
+    a global field defined over cluster centroids), resampling clusters IID can
     understate uncertainty. This routine performs a simple *grid block bootstrap*
-    over building centroids:
+    over cluster centroids:
 
-    1) Compute a centroid for each building.
+    1) Compute a centroid for each cluster.
     2) Assign each centroid to a grid cell (block).
-    3) Resample blocks (cells) with replacement; include all buildings in selected
-       blocks, duplicating buildings when blocks repeat.
+    3) Resample blocks (cells) with replacement; include all clusters in selected
+       blocks, duplicating clusters when blocks repeat.
 
     Notes
     -----
-    - The bootstrap unit is the *block* (not the point, not the building), so the
-      resample preserves within-block cross-building dependence.
-    - Duplicated buildings are relabeled to avoid conflating multiple draws.
+    - The bootstrap unit is the *block* (not the point, not the cluster), so the
+      resample preserves within-block cross-cluster dependence.
+    - Duplicated clusters are relabeled to avoid conflating multiple draws.
 
     Returns
     -------
@@ -125,11 +125,11 @@ def spatial_block_bootstrap(
     rng = np.random.default_rng(seed)
 
     centers = (
-        df.groupby(building_col, sort=False)[[x_col, y_col]]
+        df.groupby(cluster_col, sort=False)[[x_col, y_col]]
         .mean()
         .rename(columns={x_col: "cx", y_col: "cy"})
     )
-    buildings = centers.index.to_numpy()
+    clusters = centers.index.to_numpy()
 
     if blocks is None:
         cx = centers["cx"].to_numpy(dtype=float)
@@ -164,15 +164,15 @@ def spatial_block_bootstrap(
 
         out_parts = []
         for j, bl in enumerate(take_blocks):
-            blds = buildings[block_labels == bl]
+            blds = clusters[block_labels == bl]
             if len(blds) == 0:
                 continue
 
-            chunk = df[df[building_col].isin(blds)].copy()
+            chunk = df[df[cluster_col].isin(blds)].copy()
 
-            # Relabel buildings if this block draw repeats.
+            # Relabel clusters if this block draw repeats.
             if j > 0:
-                chunk[building_col] = chunk[building_col].astype(str) + f"__bb{b}_{j}"
+                chunk[cluster_col] = chunk[cluster_col].astype(str) + f"__bb{b}_{j}"
 
             out_parts.append(chunk)
 
@@ -193,44 +193,44 @@ def spatial_block_bootstrap(
     }
 
 
-def spatial_within_building_block_bootstrap(
+def spatial_within_cluster_block_bootstrap(
     df: pd.DataFrame,
     *,
     y: str,
-    building_col: str,
+    cluster_col: str,
     x_col: str,
     y_col: str,
     fit_fn: Callable[[pd.DataFrame], float],
     B: int = 200,
     seed: int = 42,
     block_size: float | None = None,
-    min_blocks_per_building: int = 4,
+    min_blocks_per_cluster: int = 4,
     max_shrink_iters: int = 8,
 ) -> Dict:
-    """Spatial block bootstrap *within each building*.
+    """Spatial block bootstrap *within each cluster*.
 
     Why this exists
     ---------------
-    A building-level cluster bootstrap is appropriate when buildings are independent and
-    within-building observations are IID. When locations on a roof/building are spatially
-    dependent, IID resampling within a building can understate uncertainty. A common and
+    A cluster-level cluster bootstrap is appropriate when clusters are independent and
+    within-cluster observations are IID. When locations on a roof/cluster are spatially
+    dependent, IID resampling within a cluster can understate uncertainty. A common and
     defensible nonparametric remedy is a *spatial block bootstrap*, where the resampling
     unit is a spatial block large enough to preserve local dependence (Lahiri, 2003).
 
     This implementation uses a simple grid-based block bootstrap separately within each
-    building:
-      1) Assign each point to a within-building grid cell (block).
-      2) Resample blocks with replacement *within each building*.
-      3) Concatenate resampled buildings and compute the statistic via ``fit_fn``.
+    cluster:
+      1) Assign each point to a within-cluster grid cell (block).
+      2) Resample blocks with replacement *within each cluster*.
+      3) Concatenate resampled clusters and compute the statistic via ``fit_fn``.
 
     Practical safeguards
     --------------------
     A frequent failure mode in synthetic demos is choosing a block size so large that each
-    building collapses to a single block, producing *degenerate* bootstrap samples and a
+    cluster collapses to a single block, producing *degenerate* bootstrap samples and a
     CI of the form [x, x]. To avoid this, when ``block_size`` is not supplied we estimate
-    it from *within-building* nearest-neighbor distances (not global distances across
-    buildings), and we adaptively shrink it per building until at least
-    ``min_blocks_per_building`` unique blocks are present (or we hit ``max_shrink_iters``).
+    it from *within-cluster* nearest-neighbor distances (not global distances across
+    clusters), and we adaptively shrink it per cluster until at least
+    ``min_blocks_per_cluster`` unique blocks are present (or we hit ``max_shrink_iters``).
 
     Returns
     -------
@@ -238,13 +238,13 @@ def spatial_within_building_block_bootstrap(
         - "B": bootstrap replicates
         - "ci_perc_90": percentile 90% CI (q05, q95)
         - "samples": bootstrap statistic samples
-        - "block_size": the global starting block size used before per-building shrinking
+        - "block_size": the global starting block size used before per-cluster shrinking
     """
     rng = np.random.default_rng(seed)
 
     if block_size is None:
         nn_meds = []
-        for _b, d in df.groupby(building_col, sort=False):
+        for _b, d in df.groupby(cluster_col, sort=False):
             xy = d[[x_col, y_col]].to_numpy(dtype=float)
             if xy.shape[0] < 3:
                 continue
@@ -274,14 +274,14 @@ def spatial_within_building_block_bootstrap(
     if not np.isfinite(block_size) or block_size <= 0:
         block_size = 1.0
 
-    blds = df[building_col].unique()
-    per_building_rows: dict[str, pd.DataFrame] = {
-        b: df[df[building_col] == b].copy() for b in blds
+    blds = df[cluster_col].unique()
+    per_cluster_rows: dict[str, pd.DataFrame] = {
+        b: df[df[cluster_col] == b].copy() for b in blds
     }
 
-    per_building_blocks: dict[str, np.ndarray] = {}
+    per_cluster_blocks: dict[str, np.ndarray] = {}
     for b in blds:
-        d = per_building_rows[b]
+        d = per_cluster_rows[b]
         cx = d[x_col].to_numpy(dtype=float)
         cy = d[y_col].to_numpy(dtype=float)
 
@@ -290,20 +290,20 @@ def spatial_within_building_block_bootstrap(
 
         for _ in range(max_shrink_iters + 1):
             labels = _grid_block_labels(cx, cy, bs)
-            if len(np.unique(labels)) >= max(1, int(min_blocks_per_building)):
+            if len(np.unique(labels)) >= max(1, int(min_blocks_per_cluster)):
                 break
             bs = max(bs / 2.0, 1e-9)
 
         assert labels is not None
-        per_building_blocks[b] = labels
+        per_cluster_blocks[b] = labels
 
     values = np.empty(B, dtype=float)
     for k in range(B):
         out_parts = []
 
         for b in blds:
-            d = per_building_rows[b]
-            labels = per_building_blocks[b]
+            d = per_cluster_rows[b]
+            labels = per_cluster_blocks[b]
             u = np.unique(labels)
             nb = len(u)
 

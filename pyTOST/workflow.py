@@ -28,7 +28,7 @@ from .engines.spatiotemporal_tost import SpatioTemporalTOST, SpatioTemporalConfi
 
 from .engines.heteroskedastic_tost import HeteroskedasticTOST
 from .engines.robust_location_tost import RobustLocationTOST
-from .bootstrap import cluster_bootstrap, spatial_block_bootstrap, spatial_within_building_block_bootstrap
+from .bootstrap import cluster_bootstrap, spatial_block_bootstrap, spatial_within_cluster_block_bootstrap
 
 
 @dataclass(frozen=True)
@@ -48,13 +48,12 @@ class WorkflowOptions:
     #   - True  -> use spatial block bootstrap (allows cross-cluster dependence)
     #   - False -> use cluster bootstrap over the grouping column
     #   - None  -> infer from config if possible, else default False
-    cross_building_dependence: Optional[bool] = None
+    cross_cluster_dependence: Optional[bool] = None
 
     # Block size (same units as x/y) for spatial block bootstrap
     spatial_block_size: float = 1.0
 
-
-def _infer_cross_building_dependence(
+def _infer_cross_cluster_dependence(
     *,
     options: WorkflowOptions,
     spatial_config: Optional[Any] = None,
@@ -63,17 +62,16 @@ def _infer_cross_building_dependence(
     """Infer cross-cluster dependence for bootstrap selection.
 
     Precedence:
-      1) options.cross_building_dependence if not None
+      1) options.cross_cluster_dependence if not None
       2) config flags if present (e.g., meas_global / baseline_global)
       3) default False
     """
-    if options.cross_building_dependence is not None:
-        return bool(options.cross_building_dependence)
+    if options.cross_cluster_dependence is not None:
+        return bool(options.cross_cluster_dependence)
 
     cfgs = [c for c in (spatial_config, spatiotemporal_config) if c is not None]
     for cfg in cfgs:
         for name in (
-            "cross_building_dependence",
             "cross_cluster_dependence",
             "meas_global",
             "baseline_global",
@@ -197,7 +195,7 @@ def run_tost(
         stat = lambda d_: d_[y].mean()
 
         if eng in {"spatial", "spatiotemporal"} and x and ycoord:
-            use_spatial_blocks = _infer_cross_building_dependence(
+            use_spatial_blocks = _infer_cross_cluster_dependence(
                 options=options,
                 spatial_config=spatial_config,
                 spatiotemporal_config=spatiotemporal_config,
@@ -206,10 +204,10 @@ def run_tost(
             # Spatial engine: validate within-cluster spatial dependence with a within-cluster block bootstrap.
             # If the user indicates cross-cluster dependence, switch to a block bootstrap over cluster centroids.
             if eng == "spatial" and not use_spatial_blocks:
-                bb = spatial_within_building_block_bootstrap(
+                bb = spatial_within_cluster_block_bootstrap(
                     df,
                     y=y,
-                    building_col=cluster,
+                    cluster_col=cluster,
                     x_col=x,
                     y_col=ycoord,
                     fit_fn=stat,
@@ -217,7 +215,7 @@ def run_tost(
                     seed=options.seed,
                     block_size=options.spatial_block_size,
                 )
-                bb["method"] = "spatial_within_building_block_bootstrap"
+                bb["method"] = "spatial_within_cluster_block_bootstrap"
                 out["bootstrap"] = bb
 
             else:
@@ -226,7 +224,7 @@ def run_tost(
                     bb = spatial_block_bootstrap(
                         df,
                         y=y,
-                        building_col=cluster,
+                        cluster_col=cluster,
                         x_col=x,
                         y_col=ycoord,
                         fit_fn=stat,

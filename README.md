@@ -273,7 +273,8 @@ These generators support settings such as:
 
 The repository includes a demonstration notebook:
 
-- `pyTOST_demo.ipynb`
+- `pyTOST_basic_demo.ipynb`
+- `pyTOST_advanced_demo.ipynb`
 
 This notebook is intended to be the canonical worked example. It uses synthetic data to show how to:
 
@@ -335,6 +336,13 @@ See `CONTRIBUTING.md` for the recommended development workflow and local test co
 ## Development status
 
 pyTOST is being prepared for open-source release and JOSS submission as a library-first package for dependence-aware equivalence testing with validation.
+
+The near-term priorities are:
+
+- packaging and install metadata
+- automated tests across all engines
+- cleanup of the canonical demo notebook
+- harmonization of documentation and JOSS paper materials
 
 ## Citation
 
