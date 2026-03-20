@@ -337,7 +337,7 @@ These are example names only. The package does not require these exact column na
 
 ## Contributing and support
 
-Please use the repository issue tracker to:
+Please use the issue tracker at `https://github.com/dhetting/pyTOST/issues` to:
 
 - report bugs and installation issues,
 - ask usage questions,
@@ -346,17 +346,12 @@ Please use the repository issue tracker to:
 
 See `CONTRIBUTING.md` for the recommended development workflow and local test commands.
 
-## Development status
+## Project scope and status
 
-pyTOST is being prepared for open-source release and JOSS submission as a library-first package for dependence-aware equivalence testing with validation.
+pyTOST is maintained as research software for dependence-aware equivalence testing with validation, with a library-first interface centered on `run_tost(...)`. The repository includes the core package, tests, reproducible example notebooks, and JOSS paper materials.
 
-The near-term priorities are:
-
-- packaging and install metadata
-- automated tests across all engines
-- cleanup of the canonical demo notebook
-- harmonization of documentation and JOSS paper materials
+Active development focuses on extending inference engines, improving diagnostics, and refining examples and documentation while preserving a stable public workflow for the main package entry points.
 
 ## Citation
 
-If you use pyTOST in research, please cite the accompanying JOSS paper once available.
+If you use pyTOST in research, please cite the software release and, once published, the accompanying JOSS paper.

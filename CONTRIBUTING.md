@@ -4,7 +4,7 @@ Thank you for your interest in improving pyTOST.
 
 ## Reporting issues
 
-Please use the repository issue tracker to report bugs, installation problems, documentation errors, or feature requests.
+Please use the issue tracker at `https://github.com/dhetting/pyTOST/issues` to report bugs, installation problems, documentation errors, or feature requests.
 
 When reporting a bug, include:
 
@@ -29,7 +29,7 @@ Contributions are welcome for:
 
 Recommended workflow:
 
-1. Fork the repository.
+1. Fork `https://github.com/dhetting/pyTOST`.
 2. Create a feature branch.
 3. Add or update tests for the change when appropriate.
 4. Run the test suite locally.
@@ -40,7 +40,7 @@ Recommended workflow:
 Install the package in editable mode with test dependencies:
 
 ```bash
-pip install -e .[test]
+pip install -e ".[test]"
 pytest -q
 ```
 

@@ -16,7 +16,7 @@ affiliations:
 date: 27 February 2026
 bibliography: paper.bib
 license: MIT
-repository: https://github.com/dhetting/pyTOST 
+repository: https://github.com/dhetting/pyTOST
 ---
 
 # Summary
