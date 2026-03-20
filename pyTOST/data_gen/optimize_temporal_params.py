@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from . import synthetic_tost_data
+from .params_io import save_best
 from ..engines import iid_tost
 from ..engines import cluster_tost
 from ..engines import temporal_tost

@@ -329,7 +329,7 @@ def generate_cluster_groups(
     Parameters
     ----------
     n_groups, points_per_group
-        Number of clusters (groups/buildings) and points per group.
+        Number of clusters (groups/clusters) and points per group.
     delta
         True mean paired difference for arm B (ignored if `effect` provided).
     seed
@@ -452,10 +452,10 @@ def generate_spatial_clusters(
     # --- Option B: allow cross-cluster spatial dependence via global fields
     baseline_global: bool = False,
     meas_global: bool = False,
-    # --- center-level global measurement field to induce cross-building dependence
+    # --- center-level global measurement field to induce cross-cluster dependence
     center_global_meas_field: bool = False,
-    building_center_sd: float = 0.0,
-    building_center_length_scale: Optional[float] = None,
+    cluster_center_sd: float = 0.0,
+    cluster_center_length_scale: Optional[float] = None,
 ) -> Tuple[pd.DataFrame, Dict]:
     """Generate spatially dependent paired A/B data with optional arm-specific spatial error.
 
@@ -481,9 +481,9 @@ def generate_spatial_clusters(
         cluster). This produces spatial correlation **across** clusters.
 
     Center-level global measurement field (new)
-        When ``center_global_meas_field=True`` and ``building_center_sd>0``, we generate
-        an additional *building-level* latent measurement component as a GP over building
-        centroids, then assign that value to all points within a building. If this component
+        When ``center_global_meas_field=True`` and ``cluster_center_sd>0``, we generate
+        an additional *cluster-level* latent measurement component as a GP over cluster
+        centroids, then assign that value to all points within a cluster. If this component
         does not cancel between A/B (controlled by ``meas_shared``), then:
           - IID inference can be severely overconfident (many points are not independent).
           - Cluster-robust inference can still be overconfident (clusters are not independent).
@@ -565,13 +565,13 @@ def generate_spatial_clusters(
                 meas_B[idx] = meas_shared * u + np.sqrt(max(0.0, 1.0 - meas_shared ** 2)) * v
 
     # ------------------------------------------------------------------
-    # Centroid-level global measurement component (constant within each building)
+    # Centroid-level global measurement component (constant within each cluster)
     # ------------------------------------------------------------------
     cen_A = np.zeros(n_clusters, dtype=float)
     cen_B = np.zeros(n_clusters, dtype=float)
-    if center_global_meas_field and (building_center_sd > 0.0):
-        cen_ls = float(building_center_length_scale) if building_center_length_scale is not None else float(meas_ls)
-        Kc = rbf_cov(centroids, length_scale=cen_ls, variance=building_center_sd ** 2)
+    if center_global_meas_field and (cluster_center_sd > 0.0):
+        cen_ls = float(cluster_center_length_scale) if cluster_center_length_scale is not None else float(meas_ls)
+        Kc = rbf_cov(centroids, length_scale=cen_ls, variance=cluster_center_sd ** 2)
         Lc = safe_cholesky(Kc)
         u = Lc @ rng.normal(size=n_clusters)
         v = Lc @ rng.normal(size=n_clusters)
@@ -625,8 +625,8 @@ def generate_spatial_clusters(
         "baseline_global": baseline_global,
         "meas_global": meas_global,
         "center_global_meas_field": bool(center_global_meas_field),
-        "building_center_sd": float(building_center_sd),
-        "building_center_length_scale": float(building_center_length_scale) if building_center_length_scale is not None else None,
+        "cluster_center_sd": float(cluster_center_sd),
+        "cluster_center_length_scale": float(cluster_center_length_scale) if cluster_center_length_scale is not None else None,
     }
     return df, meta
 

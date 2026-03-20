@@ -5,7 +5,7 @@ Spatio-temporal TOST
 
 This engine is designed for panel-like spatio-temporal data where observations have:
 
-- a building/group id (cluster),
+- a cluster/group id (cluster),
 - spatial coordinates (x, y), and
 - a time index (time).
 
@@ -61,8 +61,8 @@ class SpatioTemporalConfig:
     nu_grid
         Candidate Matérn ν values for per-time REML fits (legacy path). In the joint likelihood,
         ν is fixed to the maximum of this grid.
-    per_building_nugget
-        Whether to include τ² I within each building block (legacy per-time path).
+    per_cluster_nugget
+        Whether to include τ² I within each cluster block (legacy per-time path).
     min_time_n
         Minimum number of rows required at a time slice to attempt a legacy per-time fit.
     verbose_diagnostics
@@ -134,10 +134,9 @@ class SpatioTemporalConfig:
 
     """
     nu_grid: Tuple[float, ...] = (0.5, 1.5, 2.5)
-    per_building_nugget: bool = True
+    per_cluster_nugget: bool = True
     min_time_n: int = 8
     verbose_diagnostics: bool = False
-
     joint_regularize: bool = True
     reg_lambda: float = 1.0
 
@@ -190,7 +189,7 @@ class SpatioTemporalTOST:
     y : str
         Response column (paired difference), e.g., "diff".
     cluster : str
-        Building/group id column.
+        Cluster/group id column.
     time : str
         Time column.
     x, ycoord : str
@@ -655,7 +654,7 @@ class SpatioTemporalTOST:
                 continue
             dfp = g.rename(
                 columns={
-                    self.cluster: "building_id",
+                    self.cluster: "cluster_id",
                     self.y: "diff",
                     self.x: "x",
                     self.ycoord: "y",
@@ -663,12 +662,12 @@ class SpatioTemporalTOST:
             )
             theta = fit_matern_reml(
                 df=dfp,
-                building_col="building_id",
+                cluster_col="cluster_id",
                 x_col="x",
                 y_col="y",
                 diff_col="diff",
                 nu_grid=self.config.nu_grid,
-                per_building_nugget=self.config.per_building_nugget,
+                per_cluster_nugget=self.config.per_cluster_nugget,
             )
             mu_t = float(theta["mu_hat"])
             var_t = float(theta["var_mu"])
