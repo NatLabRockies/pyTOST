@@ -1,0 +1,8 @@
+include README.md
+include LICENSE
+include pyTOST_basic_demo.ipynb
+include pyTOST_advanced_demo.ipynb
+recursive-include pyTOST/data_gen *.json
+prune __MACOSX
+recursive-exclude * __pycache__ *.py[cod] .DS_Store *.swp
+recursive-exclude * .ipynb_checkpoints/*
