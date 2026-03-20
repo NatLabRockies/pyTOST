@@ -75,10 +75,20 @@ HAVE_RPY2 = False
 try:
     import rpy2.robjects as ro
     from rpy2.robjects import pandas2ri
-    pandas2ri.activate()
+    from rpy2.robjects.conversion import localconverter
     HAVE_RPY2 = True
 except Exception:
     HAVE_RPY2 = False
+
+
+def _df_to_r(df: pd.DataFrame):
+    """Convert a pandas DataFrame to an R data.frame only when the R path is used."""
+    if not HAVE_RPY2:
+        raise RuntimeError(
+            "Optional R-backed functionality requires pyTOST[r] plus a working R installation."
+        )
+    with localconverter(ro.default_converter + pandas2ri.converter):
+        return ro.conversion.py2rpy(df)
 
 
 # ------------------------------ Helpers & math ------------------------------
@@ -797,7 +807,7 @@ def mixed_effects_mu(df, cluster_col: str, diff_col: str, alpha: float):
     if HAVE_RPY2:
         try:
             ro.r('suppressPackageStartupMessages({library(lme4); library(lmerTest)})')
-            r_df = pandas2ri.py2rpy(df[[cluster_col, diff_col]].copy())
+            r_df = _df_to_r(df[[cluster_col, diff_col]].copy())
             ro.globalenv['r_df'] = r_df
             ro.r(f'''
                 fit <- lmer({diff_col} ~ 1 + (1|{cluster_col}), data=r_df, REML=TRUE)

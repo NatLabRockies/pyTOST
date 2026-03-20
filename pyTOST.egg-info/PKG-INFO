@@ -1,3 +1,42 @@
+Metadata-Version: 2.4
+Name: pyTOST
+Version: 0.15.0
+Summary: Dependence-aware equivalence testing with validation for IID, clustered, temporal, spatial, and spatiotemporal data.
+Author: pyTOST contributors
+License: MIT
+Project-URL: Homepage, https://github.com/placeholder/pyTOST
+Project-URL: Repository, https://github.com/placeholder/pyTOST
+Project-URL: Issues, https://github.com/placeholder/pyTOST/issues
+Keywords: equivalence testing,TOST,statistics,spatial,spatiotemporal,time series
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Topic :: Scientific/Engineering
+Classifier: Topic :: Scientific/Engineering :: Information Analysis
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy>=1.23
+Requires-Dist: pandas>=1.5
+Requires-Dist: scipy>=1.10
+Requires-Dist: statsmodels>=0.14
+Requires-Dist: matplotlib>=3.7
+Requires-Dist: nbformat>=5.9
+Requires-Dist: esda>=2.5
+Requires-Dist: libpysal>=4.8
+Provides-Extra: test
+Requires-Dist: pytest>=8; extra == "test"
+Provides-Extra: r
+Requires-Dist: rpy2>=3.5; extra == "r"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: rpy2>=3.5; extra == "dev"
+Dynamic: license-file
+
 # pyTOST
 
 pyTOST is a Python package for **dependence-aware equivalence testing with validation**. It applies the **two one-sided tests (TOST)** framework to paired differences when observations may be **IID**, **clustered**, **temporal**, **spatial**, or **spatiotemporal**.
