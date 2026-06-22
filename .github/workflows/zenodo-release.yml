@@ -1,0 +1,103 @@
+name: Zenodo Release
+
+# Triggers on every published GitHub release.
+# Uploads the source tarball to Zenodo and mints a versioned DOI.
+#
+# Required secret: ZENODO_TOKEN
+#   - Create at https://zenodo.org/account/settings/applications/tokens/new
+#   - Scopes needed: deposit:actions, deposit:write
+#   - Add to repo: Settings → Secrets → Actions → New repository secret → ZENODO_TOKEN
+#
+# Alternative (no token needed): use the GitHub-Zenodo native integration instead:
+#   https://zenodo.org/account/settings/github → enable NatLabRockies/pyTOST
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  zenodo:
+    name: Upload to Zenodo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install build requests
+
+      - name: Build source distribution
+        run: python -m build --sdist
+
+      - name: Upload to Zenodo
+        env:
+          ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          python - <<'EOF'
+          import json, os, glob, sys, requests
+
+          token = os.environ["ZENODO_TOKEN"]
+          tag   = os.environ["RELEASE_TAG"]
+          body  = os.environ.get("RELEASE_BODY", "")
+
+          BASE = "https://zenodo.org/api"
+          HDR  = {"Authorization": f"Bearer {token}"}
+
+          # ── 1. Create a new deposition ────────────────────────────────────
+          r = requests.post(f"{BASE}/deposit/depositions", headers=HDR, json={})
+          r.raise_for_status()
+          dep   = r.json()
+          dep_id = dep["id"]
+          bucket = dep["links"]["bucket"]
+          print(f"Created deposition {dep_id}")
+
+          # ── 2. Load metadata from .zenodo.json ───────────────────────────
+          with open(".zenodo.json") as f:
+              meta = json.load(f)
+
+          meta["version"] = tag.lstrip("v")
+          meta.setdefault("notes", body or f"Release {tag}")
+
+          r = requests.put(
+              f"{BASE}/deposit/depositions/{dep_id}",
+              headers=HDR,
+              json={"metadata": meta},
+          )
+          r.raise_for_status()
+          print("Metadata set")
+
+          # ── 3. Upload the source tarball ──────────────────────────────────
+          tarballs = glob.glob("dist/*.tar.gz")
+          if not tarballs:
+              sys.exit("No .tar.gz found in dist/")
+          tarball = tarballs[0]
+          filename = os.path.basename(tarball)
+          with open(tarball, "rb") as fh:
+              r = requests.put(
+                  f"{bucket}/{filename}",
+                  headers=HDR,
+                  data=fh,
+              )
+          r.raise_for_status()
+          print(f"Uploaded {filename}")
+
+          # ── 4. Publish ────────────────────────────────────────────────────
+          r = requests.post(
+              f"{BASE}/deposit/depositions/{dep_id}/actions/publish",
+              headers=HDR,
+          )
+          r.raise_for_status()
+          result = r.json()
+          doi    = result.get("doi") or result.get("metadata", {}).get("doi", "unknown")
+          url    = result.get("doi_url") or f"https://doi.org/{doi}"
+          print(f"\n✓ Published: {url}")
+          print(f"  DOI: {doi}")
+          EOF
