@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.event.release.tag_name }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,6 +46,14 @@ jobs:
 
       - name: Build source distribution
         run: python -m build --sdist
+
+      - name: Ensure Zenodo metadata exists
+        run: |
+          if [ ! -f .zenodo.json ]; then
+            echo ".zenodo.json missing at checked-out ref; fetching from main..."
+            curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/.zenodo.json" -o .zenodo.json
+          fi
+          test -f .zenodo.json
 
       - name: Upload to Zenodo
         env:
