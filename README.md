@@ -269,10 +269,10 @@ These generators support settings such as:
 
 ## Canonical example notebook
 
-The repository includes a demonstration notebook:
+The repository includes demonstration notebooks:
 
-- `pyTOST_basic_demo.ipynb`
-- `pyTOST_advanced_demo.ipynb`
+- `notebooks/pyTOST_basic_demo.ipynb`
+- `notebooks/pyTOST_advanced_demo.ipynb`
 
 This notebook is intended to be the canonical worked example. It uses synthetic data to show how to:
 
