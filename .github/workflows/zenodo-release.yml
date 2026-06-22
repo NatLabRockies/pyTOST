@@ -14,6 +14,15 @@ name: Zenodo Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to archive in Zenodo (for example: v0.15.0)"
+        required: true
+      release_body:
+        description: "Optional release notes override"
+        required: false
+        default: ""
 
 jobs:
   zenodo:
@@ -23,6 +32,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.event.release.tag_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,8 +49,8 @@ jobs:
       - name: Upload to Zenodo
         env:
           ZENODO_TOKEN: ${{ secrets.ZENODO_TOKEN }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_body || github.event.release.body }}
         run: |
           python - <<'EOF'
           import json, os, glob, sys, requests
