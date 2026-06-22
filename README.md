@@ -271,8 +271,8 @@ These generators support settings such as:
 
 The repository includes demonstration notebooks:
 
-- `notebooks/pyTOST_basic_demo.ipynb`
-- `notebooks/pyTOST_advanced_demo.ipynb`
+- `examples/pyTOST_basic_demo.ipynb`
+- `examples/pyTOST_advanced_demo.ipynb`
 
 This notebook is intended to be the canonical worked example. It uses synthetic data to show how to:
 
