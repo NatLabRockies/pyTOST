@@ -21,7 +21,6 @@ dependencies = [
   "nbformat>=5.9",
   "esda>=2.5",
   "libpysal>=4.8",
-  "rpy2>=3.5",
 ]
 keywords = ["equivalence testing", "TOST", "statistics", "spatial", "spatiotemporal", "time series"]
 classifiers = [
@@ -37,9 +36,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/placeholder/pyTOST"
-Repository = "https://github.com/placeholder/pyTOST"
-Issues = "https://github.com/placeholder/pyTOST/issues"
+Homepage = "https://github.com/NatLabRockies/pyTOST"
+Repository = "https://github.com/NatLabRockies/pyTOST"
+Issues = "https://github.com/NatLabRockies/pyTOST/issues"
 
 [tool.setuptools]
 include-package-data = true
@@ -54,6 +53,9 @@ pyTOST = ["data_gen/*.json"]
 
 
 [project.optional-dependencies]
+r = [
+  "rpy2>=3.5",
+]
 test = [
   "pytest>=8",
 ]
