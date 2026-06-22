@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "BSD-3-Clause"
 authors = [
-  {name = "pyTOST contributors"}
+  {name = "Dylan Hettinger"}
 ]
 dependencies = [
   "numpy>=1.23",
