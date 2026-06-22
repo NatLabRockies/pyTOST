@@ -16,8 +16,6 @@ The distinguishing feature of pyTOST is that the confidence interval is adapted 
 
 ## Installation
 
-Once published to PyPI:
-
 ```bash
 pip install pyTOST
 ```
