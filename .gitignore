@@ -33,3 +33,7 @@ htmlcov/
 outputs/
 *.log
 
+# Stale versioned archives (superseded by git history / Zenodo releases)
+old/
+*.zip
+
