@@ -18,7 +18,6 @@ dependencies = [
   "scipy>=1.10",
   "statsmodels>=0.14",
   "matplotlib>=3.7",
-  "nbformat>=5.9",
   "esda>=2.5",
   "libpysal>=4.8",
 ]
@@ -54,6 +53,9 @@ pyTOST = ["data_gen/*.json"]
 [project.optional-dependencies]
 r = [
   "rpy2>=3.5",
+]
+notebooks = [
+  "nbformat>=5.9",
 ]
 test = [
   "pytest>=8",
