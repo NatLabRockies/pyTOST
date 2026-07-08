@@ -33,6 +33,3 @@ htmlcov/
 outputs/
 *.log
 
-# JOSS paper (kept locally, not published in repo)
-paper.md
-paper.bib
