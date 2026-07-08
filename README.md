@@ -32,7 +32,7 @@ For local testing during development:
 pip install -e ".[test]"
 ```
 
-pyTOST currently requires **Python 3.10+** and relies on the scientific Python stack plus spatial tooling. Because `rpy2` is a declared runtime dependency, a fully fresh installation also requires a working **R** installation that `rpy2` can bind to.
+pyTOST currently requires **Python 3.10+** and relies on the scientific Python stack plus spatial tooling. The `rpy2` integration is optional; install it only if you need the R-backed workflow and have a working **R** installation that `rpy2` can bind to.
 
 pyTOST currently declares the following runtime dependencies:
 
@@ -44,7 +44,12 @@ pyTOST currently declares the following runtime dependencies:
 - `nbformat`
 - `esda`
 - `libpysal`
-- `rpy2`
+
+To include the optional R integration:
+
+```bash
+pip install "pyTOST[r]"
+```
 
 Some optional functionality in the spatial engine becomes more complete when PySAL and R-related tooling are available, but the core library workflow remains `run_tost(...)`.
 
