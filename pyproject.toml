@@ -59,8 +59,26 @@ notebooks = [
 ]
 test = [
   "pytest>=8",
+  "pytest-cov>=5",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[tool.pixi.pypi-dependencies]
+pyTOST = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+test = { features = ["test"], solve-group = "default" }
+r = { features = ["r"], solve-group = "default" }
+notebooks = { features = ["notebooks"], solve-group = "default" }
+
+[tool.pixi.tasks]
+test = "python -m pytest -q"
+test-cov = "python -m pytest --cov=pyTOST --cov-report=term-missing -q"
