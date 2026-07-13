@@ -1,6 +1,6 @@
 name: Tests
 
-# Runs the pytest suite on every push to main and every pull request.
+# Runs the pytest suite (via Pixi) on every push to main and every pull request.
 
 on:
   push:
@@ -10,13 +10,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: prefix-dev/setup-pixi@v0.8.1
         with:
-          python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[test]"
-      - run: pytest -q
+          pixi-version: v0.68.1
+          environments: test
+      - run: pixi run -e test test
