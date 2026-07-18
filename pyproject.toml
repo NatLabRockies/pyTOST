@@ -65,6 +65,9 @@ test = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+  "slow: long-running validation tests (deselect with '-m \"not slow\"')",
+]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
