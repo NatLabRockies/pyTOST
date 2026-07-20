@@ -1396,6 +1396,7 @@ class SpatialConfig:
     nu_grid: Tuple[float, ...] = (0.5, 1.5, 2.5)
     per_cluster_nugget: bool = True
     verbose_diagnostics: bool = False
+    point_estimator: str = "gls"  # "gls" (profile LR) or "equal_weighted" (Wald on the sample mean)
 
 class SpatialTOST:
     """
@@ -1489,15 +1490,31 @@ class SpatialTOST:
             print(f"  fitted var_mu (conditional)={var_mu:.6g}, se={float(var_mu**0.5):.6g}")
 
 
-        ci_low, ci_high = lr_ci_for_mu(
-            df=dfp,
-            cluster_col="cluster_id",
-            x_col="x",
-            y_col="y",
-            diff_col="diff",
-            theta=theta,
-            alpha=alpha,
-        )
+        if self.config.point_estimator == "equal_weighted":
+            Sigma, yv, ones = _build_sigma_and_stacks(
+                dfp, "cluster_id", "x", "y", "diff",
+                sigma2=float(theta["sigma2"]), rho=float(theta["rho"]),
+                tau2=float(theta["tau2"]), nu=float(theta["nu"]),
+                per_cluster_nugget=self.config.per_cluster_nugget,
+            )
+            N = len(yv)
+            mu_hat = float(yv.mean())
+            var_xbar = float((ones.T @ Sigma @ ones).item()) / (N * N)
+            se = float(np.sqrt(max(var_xbar, 0.0)))
+            zcrit = float(stats.norm.ppf(1 - alpha))
+            ci_low, ci_high = mu_hat - zcrit * se, mu_hat + zcrit * se
+            method = "Matérn covariance + equal-weighted mean (Wald)"
+        else:
+            ci_low, ci_high = lr_ci_for_mu(
+                df=dfp,
+                cluster_col="cluster_id",
+                x_col="x",
+                y_col="y",
+                diff_col="diff",
+                theta=theta,
+                alpha=alpha,
+            )
+            method = "Matérn GLS (REML) + LR CI"
 
         if self.config.verbose_diagnostics:
             print(f"  LR CI: [{float(ci_low):.6g}, {float(ci_high):.6g}]")
@@ -1513,7 +1530,7 @@ class SpatialTOST:
                     ci_low=float(ci_low),
                     ci_high=float(ci_high),
                     equivalent=(ci_low > -d and ci_high < d),
-                    method="Matérn GLS (REML) + LR CI",
+                    method=method,
                 )
             )
         return pd.DataFrame(rows)

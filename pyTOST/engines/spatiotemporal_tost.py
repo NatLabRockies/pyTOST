@@ -166,6 +166,7 @@ class SpatioTemporalConfig:
     mu_timeblock_refit_maxiter: int = 120
     mu_bootstrap_B: int = 400
     mu_bootstrap_seed: Optional[int] = 12345
+    point_estimator: str = "gls"  # "gls" or "equal_weighted" (Wald on the sample mean)
 
 
 def _pairwise_dists_xy(XY: np.ndarray) -> np.ndarray:
@@ -439,7 +440,17 @@ class SpatioTemporalTOST:
 
                 # Compute CI for mu_hat from the joint fit.
 # Compute CI for mu_hat from the joint fit.
-        if self.config.mu_ci_method == "wald":
+        if self.config.point_estimator == "equal_weighted":
+            Nrows = K.shape[0]
+            mu_hat = float(df[self.y].mean())
+            var_xbar = float(one @ (K @ one)) / (Nrows * Nrows)
+            se = float(np.sqrt(max(var_xbar, 0.0)))
+            zcrit = float(stats.norm.ppf(1 - alpha))
+            ci_low = float(mu_hat - zcrit * se)
+            ci_high = float(mu_hat + zcrit * se)
+            ci_method = "equal-weighted mean (Wald)"
+
+        elif self.config.mu_ci_method == "wald":
             zcrit = float(stats.norm.ppf(1 - alpha))
             se = float(np.sqrt(var_mu))
             ci_low = float(mu_hat - zcrit * se)
