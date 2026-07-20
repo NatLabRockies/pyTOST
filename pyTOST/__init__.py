@@ -38,6 +38,7 @@ from .engines.temporal_tost import TemporalTOST
 # Publication-grade spatial engines
 from .engines.spatial_tost import SpatialTOST, SpatialConfig
 from .engines.spatiotemporal_tost import SpatioTemporalTOST, SpatioTemporalConfig
+from .engines.building_aware import BuildingAwareSpatioTemporalTOST, BuildingAwareConfig
 
 
 # Sensitivity engines
@@ -56,6 +57,8 @@ __all__ = [
     "SpatialConfig",
     "SpatioTemporalTOST",
     "SpatioTemporalConfig",
+    "BuildingAwareSpatioTemporalTOST",
+    "BuildingAwareConfig",
     # sensitivity
     "HeteroskedasticTOST",
     "RobustLocationTOST",
