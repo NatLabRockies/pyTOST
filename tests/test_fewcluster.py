@@ -82,3 +82,25 @@ def test_wild_cluster_coverage_few_clusters():
     cov_cr0 = cover_cr0 / nsim
     # Wild cluster bootstrap should be close to nominal; both recorded for report.
     assert cov_wcb >= 0.90, f"wild-cluster coverage too low: {cov_wcb}"
+
+
+def test_wild_bootstrap_exact_enumerates_full_sign_support():
+    df = _make_clustered(G=7, n_per=12, icc=0.15, seed=7)
+    y = df["diff"].to_numpy()
+    g = df["cluster_id"].to_numpy()
+    r = wild_cluster_bootstrap_ci(y, g, exact=True)
+    assert r["exact"] is True
+    assert r["n_patterns"] == 2 ** 7
+    assert r["seed"] is None
+    # Exact enumeration is deterministic: repeated calls are identical.
+    r2 = wild_cluster_bootstrap_ci(y, g, exact=True)
+    assert r2["ci_low"] == r["ci_low"] and r2["ci_high"] == r["ci_high"]
+    # Small G auto-selects exact enumeration.
+    r_auto = wild_cluster_bootstrap_ci(y, g)
+    assert r_auto["exact"] is True and r_auto["n_patterns"] == 2 ** 7
+
+
+def test_wild_bootstrap_tost_label_reports_exact_enumeration():
+    df = _make_clustered(G=7, n_per=10, icc=0.2, seed=3)
+    out = wild_cluster_tost(df, "diff", "cluster_id", [1.0], exact=True)
+    assert "exact 128 sign patterns" in out.iloc[0]["method"]

@@ -23,10 +23,16 @@ References
 """
 from __future__ import annotations
 
-from typing import List
+from itertools import product
+from typing import List, Optional
 import numpy as np
 import pandas as pd
 from scipy import stats
+
+
+def _rademacher_support(G: int) -> np.ndarray:
+    """Return the full 2**G matrix of cluster-level Rademacher sign vectors."""
+    return np.array(list(product((-1.0, 1.0), repeat=G)), dtype=float)
 
 
 def _cluster_sums(y: np.ndarray, groups: np.ndarray):
@@ -84,7 +90,8 @@ def cr2_mean(y: np.ndarray, groups: np.ndarray, alpha: float = 0.05):
 
 
 def wild_cluster_bootstrap_ci(y: np.ndarray, groups: np.ndarray, alpha: float = 0.05,
-                              B: int = 1999, seed: int = 123, se: str = "CR2"):
+                              B: int = 1999, seed: int = 123, se: str = "CR2",
+                              exact: Optional[bool] = None, enum_cap_G: int = 13):
     """Unrestricted wild cluster bootstrap-t (percentile-t) CI for the mean.
 
     Cluster-level Rademacher weights w_g in {-1,+1} are applied to residuals to
@@ -93,13 +100,21 @@ def wild_cluster_bootstrap_ci(y: np.ndarray, groups: np.ndarray, alpha: float = 
     ci = [mu_hat - q_{1-alpha} se, mu_hat - q_{alpha} se].
 
     ``se`` selects the studentising SE inside the bootstrap ("CR2" or "CR0").
+
+    With few clusters the Rademacher weight vector has only ``2**G`` distinct
+    values, so drawing ``B`` random vectors merely resamples that finite support
+    with duplication. When ``exact`` is true (or ``exact`` is ``None`` and
+    ``2**G <= 2**enum_cap_G``) the full ``2**G`` sign support is enumerated once
+    and the reference distribution is exact rather than Monte Carlo.
     """
     y = np.asarray(y, float)
     groups = np.asarray(groups)
-    rng = np.random.default_rng(seed)
     N = len(y)
     mu, e, uniq, s_raw, n_g = _cluster_sums(y, groups)
     G = len(uniq)
+
+    if exact is None:
+        exact = G <= enum_cap_G
 
     def _se(yy):
         m, ee, _u, sr, ng = _cluster_sums(yy, groups)
@@ -113,9 +128,18 @@ def wild_cluster_bootstrap_ci(y: np.ndarray, groups: np.ndarray, alpha: float = 
     se_hat = _se(y)
     # map cluster -> row mask once
     masks = {g: (groups == g) for g in uniq}
-    tstars = np.empty(B)
-    for b in range(B):
-        w = rng.choice([-1.0, 1.0], size=G)
+
+    if exact:
+        signs = _rademacher_support(G)
+        n_patterns = signs.shape[0]
+    else:
+        rng = np.random.default_rng(seed)
+        signs = rng.choice((-1.0, 1.0), size=(B, G))
+        n_patterns = B
+
+    tstars = np.empty(n_patterns)
+    for b in range(n_patterns):
+        w = signs[b]
         ystar = y.copy()
         for gi, g in enumerate(uniq):
             m = masks[g]
@@ -127,21 +151,27 @@ def wild_cluster_bootstrap_ci(y: np.ndarray, groups: np.ndarray, alpha: float = 
     q_hi = np.quantile(tstars, 1 - alpha)
     ci_low = mu - q_hi * se_hat
     ci_high = mu - q_lo * se_hat
-    return {"mu": mu, "se": float(se_hat), "G": G, "B": B, "seed": seed,
+    return {"mu": mu, "se": float(se_hat), "G": G,
+            "B": int(n_patterns), "exact": bool(exact), "n_patterns": int(n_patterns),
+            "seed": (None if exact else seed),
             "ci_low": float(ci_low), "ci_high": float(ci_high),
             "t_q_low": float(q_lo), "t_q_high": float(q_hi)}
 
 
 def wild_cluster_tost(df: pd.DataFrame, y: str, cluster: str, margins: List[float],
                       alpha: float = 0.05, B: int = 1999, seed: int = 123,
-                      se: str = "CR2") -> pd.DataFrame:
+                      se: str = "CR2", exact: Optional[bool] = None) -> pd.DataFrame:
     """TOST equivalence decisions using the wild cluster bootstrap-t CI."""
     r = wild_cluster_bootstrap_ci(df[y].to_numpy(float), df[cluster].to_numpy(),
-                                  alpha=alpha, B=B, seed=seed, se=se)
+                                  alpha=alpha, B=B, seed=seed, se=se, exact=exact)
+    if r["exact"]:
+        label = f"Wild cluster bootstrap-t ({se}, exact {r['n_patterns']} sign patterns)"
+    else:
+        label = f"Wild cluster bootstrap-t ({se}, B={r['n_patterns']})"
     rows = []
     for d in margins:
         d = float(d)
         rows.append(dict(delta=d, mu_hat=r["mu"], ci_low=r["ci_low"], ci_high=r["ci_high"],
                          equivalent=(r["ci_low"] > -d and r["ci_high"] < d),
-                         method=f"Wild cluster bootstrap-t ({se}, B={B})", G=r["G"]))
+                         method=label, G=r["G"]))
     return pd.DataFrame(rows)

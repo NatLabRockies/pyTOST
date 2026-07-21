@@ -93,9 +93,13 @@ def test_building_aware_variance_matches_dense_reconstruction():
             Sigma[i, j] = cov
     one = np.ones(N)
     var_xbar = float(one @ (Sigma @ one)) / (N * N)
-    z = stats.norm.ppf(1 - alpha)
-    hw_ref = z * np.sqrt(var_xbar)
+    # The engine reports the equal-weighted-mean variance via its se; check that
+    # the independently reconstructed variance matches, and that the half-width is
+    # that se times the Student-t(G-1) critical value the engine uses.
+    G = df["building_id"].nunique()
+    assert float(r["se"]) == pytest.approx(np.sqrt(var_xbar), rel=1e-9)
+    t_ref = stats.t.ppf(1 - alpha, G - 1) * np.sqrt(var_xbar)
     hw_engine = (r.ci_high - r.ci_low) / 2.0
-    assert hw_engine == pytest.approx(hw_ref, rel=1e-9)
+    assert hw_engine == pytest.approx(t_ref, rel=1e-9)
     # point estimate is the equal-weighted (balanced) sample mean
     assert r.mu_hat == pytest.approx(df["diff"].mean(), rel=1e-12)
