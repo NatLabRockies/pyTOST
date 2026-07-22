@@ -21,13 +21,25 @@ import statsmodels.api as sm
 from typing import List
 
 class TemporalTOST:
-    def __init__(self, y: str, time: str, hac_lags: int = 4):
+    def __init__(self, y: str, time: str, hac_lags: int = 4, require_unique_times: bool = False):
         self.y = y
         self.time = time
         self.hac_lags = hac_lags
+        # When True, raise ValueError if any time value appears more than once in the
+        # data passed to fit().  On the publication path (one observation per ordered
+        # time point) set this to True to prevent accidental use of raw, un-aggregated data.
+        self.require_unique_times = require_unique_times
 
     def _hac(self, df, alpha):
         df2 = df.sort_values(self.time)
+        if self.require_unique_times:
+            dup = df2[self.time].duplicated()
+            if dup.any():
+                raise ValueError(
+                    f"TemporalTOST: duplicate time values detected (require_unique_times=True). "
+                    f"Duplicated times: {df2.loc[dup, self.time].unique().tolist()}.  "
+                    "Aggregate to one observation per time point before fitting."
+                )
         X = np.ones((len(df2),1))
         fit = sm.OLS(df2[self.y].to_numpy(float), X).fit(cov_type="HAC", cov_kwds={"maxlags": self.hac_lags})
         mu = float(fit.params[0]); se = float(fit.bse[0])

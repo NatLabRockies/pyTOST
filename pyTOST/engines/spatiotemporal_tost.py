@@ -26,7 +26,7 @@ Primary: Joint separable spatiotemporal Gaussian likelihood
     to the interim approach below.
 
 Fallback: Per-time spatial fits + IVW
-    We use the spatial Matérn GLS (REML) methodology from
+    We use the spatial Matérn GLS (profile Gaussian ML) methodology from
     `spatial_tost.py` as the core estimator, applied per time slice.
 
     1) For each time t, fit the spatial model to estimate μ_t and Var(μ_t).
@@ -47,7 +47,7 @@ import pandas as pd
 from scipy import linalg, optimize, stats
 
 from .spatial_tost import _matern_cov  # correlation up to sigma2; we use sigma2 separately
-from .spatial_tost import fit_matern_reml  # lr CI used only for per-time θ selection
+from .spatial_tost import fit_matern_profile_ml  # lr CI used only for per-time θ selection
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,7 @@ class SpatioTemporalConfig:
     Parameters
     ----------
     nu_grid
-        Candidate Matérn ν values for per-time REML fits (legacy path). In the joint likelihood,
+        Candidate Matérn ν values for per-time profile ML fits (legacy path). In the joint likelihood,
         ν is fixed to the maximum of this grid.
     per_cluster_nugget
         Whether to include τ² I within each cluster block (legacy per-time path).
@@ -167,6 +167,10 @@ class SpatioTemporalConfig:
     mu_bootstrap_B: int = 400
     mu_bootstrap_seed: Optional[int] = 12345
     point_estimator: str = "gls"  # "gls" or "equal_weighted" (Wald on the sample mean)
+    # When True, raise ValueError if the panel is not balanced (T×S full grid) instead of
+    # silently falling back to the per-time spatial + IVW procedure.  Set this on the
+    # publication path to ensure the joint separable ML estimator is actually used.
+    require_balanced: bool = False
 
 
 def _pairwise_dists_xy(XY: np.ndarray) -> np.ndarray:
@@ -228,6 +232,15 @@ class SpatioTemporalTOST:
         joint = self._try_joint_separable_ml(df=df, alpha=alpha, margins=margins)
         if joint is not None:
             return joint
+
+        # If the caller requires a balanced panel (e.g., on the publication path), raise
+        # rather than silently downgrading to the per-time IVW fallback.
+        if self.config.require_balanced:
+            raise ValueError(
+                "SpatioTemporalTOST: panel is not balanced (not a T×S full grid) and "
+                "config.require_balanced=True.  Pass require_balanced=False explicitly to "
+                "allow the per-time spatial + IVW fallback."
+            )
 
         # Fall back to the legacy per-time spatial + IVW method
         return self._fit_per_time_ivw(df=df, alpha=alpha, margins=margins)
@@ -671,7 +684,7 @@ class SpatioTemporalTOST:
                     self.ycoord: "y",
                 }
             )
-            theta = fit_matern_reml(
+            theta = fit_matern_profile_ml(
                 df=dfp,
                 cluster_col="cluster_id",
                 x_col="x",
@@ -733,7 +746,7 @@ class SpatioTemporalTOST:
                     ci_low=float(ci_low),
                     ci_high=float(ci_high),
                     equivalent=(ci_low > -d and ci_high < d),
-                    method="Per-time Matérn GLS (REML) aggregated via IVW + t-CI",
+                    method="Per-time Matérn GLS (profile Gaussian ML) aggregated via IVW + t-CI",
                 )
             )
         return pd.DataFrame(rows)

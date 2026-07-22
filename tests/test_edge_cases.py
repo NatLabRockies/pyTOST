@@ -90,7 +90,7 @@ def test_spatiotemporal_engine_unbalanced_panel_two_time_steps():
     ).fit(df, alpha=0.05, margins=[0.01, 0.5])
 
     assert len(res) == 2
-    assert (res["method"] == "Per-time Matérn GLS (REML) aggregated via IVW + t-CI").all()
+    assert (res["method"] == "Per-time Matérn GLS (profile Gaussian ML) aggregated via IVW + t-CI").all()
     assert res["ci_low"].notna().all()
     assert res["ci_high"].notna().all()
 

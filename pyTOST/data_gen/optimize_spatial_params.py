@@ -190,7 +190,7 @@ def _run_one(
     """
     Evaluate a single generated dataset.
 
-    Design goal: keep the expensive spatial fit (Matérn REML + LR CI) rare.
+    Design goal: keep the expensive spatial fit (Matérn profile ML + LR CI) rare.
 
     Screening:
       1) IID must pass equivalence at Δ=margin
@@ -361,7 +361,7 @@ def evaluate_params(
 
     Performance strategy
     --------------------
-    Spatial (Matérn REML + LR CI) is expensive. We therefore:
+    Spatial (Matérn profile ML + LR CI) is expensive. We therefore:
       1) run IID and Cluster first (cheap),
       2) only attempt Spatial if those pass and the cluster CI is close to the
          equivalence boundary (controlled by `prescreen_buffer`).

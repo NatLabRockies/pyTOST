@@ -3,7 +3,7 @@ engines/heteroskedastic_tost.py
 ===============================
 Heteroskedasticity-aware TOST engine with:
   - HC3 robust SE (no clusters)
-  - Cluster-robust (CR2-ish) SE when clusters provided
+  - Cluster-robust (CR2) SE when clusters provided
   - Wild *cluster* bootstrap CIs (Rademacher multipliers) for validation/publication
 
 Why
@@ -30,6 +30,7 @@ import pandas as pd
 from scipy import stats
 import statsmodels.api as sm
 from typing import List, Optional, Tuple
+from pyTOST.fewcluster import wild_cluster_bootstrap_ci as _fewcluster_wcb_ci
 
 
 def _percentile_ci(arr: np.ndarray, alpha: float) -> Tuple[float, float]:
@@ -86,57 +87,29 @@ class HeteroskedasticTOST:
     # --- wild cluster bootstrap ---
     def _wild_cluster_bootstrap_ci(self, df: pd.DataFrame, alpha: float) -> Tuple[float, float]:
         """
-        Percentile CI for μ using wild *cluster* bootstrap with Rademacher multipliers.
-        For an intercept-only model, μ̂ is the sample mean of bootstrap pseudo-responses.
-
-        Steps (Cameron et al., 2008):
-          1) Fit OLS to get residuals u_i and cluster means \bar u_g.
-          2) Generate multiplier v_g ∈ {−1, +1}, iid across clusters.
-          3) Form y*_i = μ̂ + v_g * (u_i - \bar u_g) for i in cluster g.
-          4) Recompute μ̂* and store.
+        Percentile-t CI for μ using the tested fewcluster wild cluster bootstrap
+        (Cameron et al., 2008). Cluster-level Rademacher sign flips act on raw
+        (non-recentered) residuals so bootstrap means spread around the original mean.
         """
-        rng = np.random.default_rng(self.seed)
-        y = df[self.y].to_numpy(float)
-        X = np.ones((len(df), 1))
-        ols = sm.OLS(y, X).fit()
-        mu_hat = float(ols.params[0])
-        resid = y - mu_hat
-
-        # center residuals within cluster to respect cluster structure
-        g = df[self.cluster].to_numpy()
-        uniq = np.unique(g)
-        r_centered = resid.copy()
-        for cl in uniq:
-            idx = (g == cl)
-            r_centered[idx] = resid[idx] - resid[idx].mean()
-
-        boots = []
-        for _ in range(self.wild_B):
-            # rademacher multipliers at cluster level
-            m = rng.choice([-1.0, 1.0], size=len(uniq))
-            y_star = y.copy()
-            for j, cl in enumerate(uniq):
-                idx = (g == cl)
-                y_star[idx] = mu_hat + m[j] * r_centered[idx]
-            boots.append(float(y_star.mean()))
-        arr = np.asarray(boots, float)
-        return _percentile_ci(arr, alpha)
+        r = _fewcluster_wcb_ci(
+            df[self.y].to_numpy(float),
+            df[self.cluster].to_numpy(),
+            alpha=alpha,
+            B=self.wild_B,
+            seed=self.seed,
+            se="CR2",
+        )
+        return float(r["ci_low"]), float(r["ci_high"])
 
     # --- fit ---
     def fit(self, df: pd.DataFrame, alpha: float, margins: List[float]) -> pd.DataFrame:
         have_cluster = self.cluster is not None and self.cluster in df.columns
 
         if have_cluster:
-            mu, ci_cr, label = self._cluster_robust(df, alpha)
-            # validate/optionally replace with wild cluster bootstrap if wider
-            try:
-                ci_boot = self._wild_cluster_bootstrap_ci(df, alpha)
-                ci_low = min(ci_cr[0], ci_boot[0])
-                ci_high = max(ci_cr[1], ci_boot[1])
-                ci = (ci_low, ci_high)
-                label = label + " + Wild Cluster Bootstrap (conservative)"
-            except Exception:
-                ci = ci_cr
+            mu, _ci_cr, _label = self._cluster_robust(df, alpha)
+            ci_boot = self._wild_cluster_bootstrap_ci(df, alpha)
+            ci = ci_boot
+            label = "Wild Cluster Bootstrap (CR2, Rademacher)"
         else:
             mu, ci_hc3, label = self._hc3(df, alpha)
             ci = ci_hc3

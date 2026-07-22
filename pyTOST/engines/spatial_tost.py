@@ -1,12 +1,12 @@
 """
-Publication-grade spatial TOST with Matérn GLS and likelihood-ratio CIs
-======================================================================
+Spatial TOST with Matérn GLS and likelihood-ratio CIs
+=====================================================
 
 This module implements a rigorous workflow to decide whether spatial dependence
 matters and, when it does, to estimate the population mean difference μ using a
 Gaussian process with a Matérn covariance (shared hyper-parameters across clusters),
-fitted by REML. We then produce a **profile likelihood CI for μ** and apply the
-CI-in-TOST rule over any set of equivalence margins Δ.
+fitted by profile Gaussian ML. We then produce a **profile likelihood CI for μ** and
+apply the CI-in-TOST rule over any set of equivalence margins Δ.
 
 Key features
 ------------
@@ -14,7 +14,8 @@ Key features
   variograms, Moran’s I (optional with PySAL).
 - Spatial model: block-diagonal Σ = diag{ Σ_b }, each Σ_b is Matérn(σ^2, ρ, ν) + τ^2 I
   on the cluster’s coordinates (x,y). Hyper-parameters (σ^2, ρ, τ^2) are estimated by
-  **REML** for each candidate ν; ν is chosen by profile REML over a grid (e.g., {0.5,1.5,2.5}).
+  **profile Gaussian ML** for each candidate ν; ν is chosen by profile ML over a grid
+  (e.g., {0.5,1.5,2.5}).
 - μ inference:
   * GLS estimator: μ̂(θ) = (1ᵗ Σ(θ)⁻¹ y) / (1ᵗ Σ(θ)⁻¹ 1)
   * Likelihood-ratio CI for μ: invert LRT with 1 df → robust to θ uncertainty.
@@ -25,7 +26,7 @@ Key features
 Statistical references
 ----------------------
 - Matérn covariance and spatial likelihood: Cressie (1993), Stein (1999).
-- REML for covariance parameters: Harville (1977), Kenward & Roger (1997).
+- Profile Gaussian ML for covariance parameters: Harville (1977).
 - Equivalence testing (TOST): Schuirmann (1987); Lakens (2017).
 - Small-sample cluster-robust variance: Bell & McCaffrey (2002); Pustejovsky & Tipton (2018).
 
@@ -143,9 +144,10 @@ def block_matern_cov(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str,
 #     Given y (stacked by clusters), compute:
 #       - GLS μ̂ = (1' Σ⁻¹ y) / (1' Σ⁻¹ 1)
 #       - Var(μ̂) = 1 / (1' Σ⁻¹ 1)
-#       - REML loglik (intercept-only) up to constants: 
-#             ℓ_R(θ) = -0.5[ log|Σ| + log(1'Σ⁻¹1) + y' P y ],
+#       - Profile Gaussian ML loglik (intercept-only) up to constants: 
+#             ℓ_pML(θ) = -0.5[ log|Σ| + log(1'Σ⁻¹1) + y' P y ],
 #         where P = Σ⁻¹ - Σ⁻¹1 (1'Σ⁻¹1)⁻¹ 1'Σ⁻¹.
+#         Note: this omits the log|XᵀΣ⁻¹X| term required for REML; it is profile ML.
 #     """
 #     # Cholesky for stability
 #     L = linalg.cholesky(Sigma, lower=True, check_finite=False)
@@ -155,7 +157,7 @@ def block_matern_cov(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str,
 #     B = float(ones.T @ Sinv @ y)
 #     mu_hat = B / A
 #     var_mu = 1.0 / A
-#     # REML loglik pieces
+#     # Profile ML loglik pieces
 #     logdet = 2.0 * np.sum(np.log(np.diag(L)))
 #     P = Sinv - (Sinv @ ones) @ (ones.T @ Sinv) / A
 #     quad = float(y.T @ P @ y)
@@ -281,11 +283,11 @@ def _build_sigma_and_stacks(df, cluster_col, x_col, y_col, diff_col, sigma2, rho
         i += m
     return Sigma, y, ones
 
-# ---------- FIXED reml_objective ----------
-def reml_objective(theta_log, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget):
+# ---------- FIXED profile_ml_objective ----------
+def profile_ml_objective(theta_log, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget):
     """
     Given log-params theta_log = (log σ², log ρ, log τ²), build Σ, compute GLS μ̂ and profile loglik.
-    Returns (neg_reml, cache).
+    Returns (neg_loglik, cache).
     """
     # unpack with positivity
     sigma2 = float(np.exp(theta_log[0]))
@@ -313,16 +315,17 @@ def reml_objective(theta_log, df, cluster_col, x_col, y_col, diff_col, nu, per_c
         return 1e12, cache
 
     cache = {"sigma2": sigma2, "rho": rho, "tau2": tau2, "nu": nu, "mu_hat": mu_hat, "var_mu": var_mu}
-    # REML constant terms (X=1 only) differ by constants across θ, so using profile ll is fine for selection
+    # Objective is profile Gaussian ML (profiles out μ); the log|XᵀΣ⁻¹X| term is included,
+    # making this profile ML, not REML.
     return -ll, cache
 
 
 
-# def fit_matern_reml(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str, diff_col: str,
+# def fit_matern_profile_ml(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str, diff_col: str,
 #                     nu_grid: Iterable[float] = (0.5, 1.5, 2.5), per_cluster_nugget: bool = True,
 #                     start: Optional[Tuple[float,float,float]] = None, verbose: bool = False) -> Dict:
 #     """
-#     Fit Matérn parameters by REML with ν chosen by profile over nu_grid.
+#     Fit Matérn parameters by profile Gaussian ML with ν chosen by profile over nu_grid.
 #     start: optional (sigma2, rho, tau2) initial values; if None, crude method-of-moments.
 #     Returns dict with best θ, ν, μ̂, var(μ̂), and optimizer info.
 #     """
@@ -344,20 +347,20 @@ def reml_objective(theta_log, df, cluster_col, x_col, y_col, diff_col, nu, per_c
 #     for nu in nu_grid:
 #         theta0 = np.log(np.array(start))
 #         res = optimize.minimize(
-#             lambda th: reml_objective(th, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget)[0],
+#             lambda th: profile_ml_objective(th, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget)[0],
 #             theta0,
 #             method="L-BFGS-B",
 #             bounds=[(-20, 20), (-20, 20), (-20, 20)],
 #             options=dict(maxiter=500)
 #         )
-#         val, cache = reml_objective(res.x, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget)
+#         val, cache = profile_ml_objective(res.x, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget)
 #         if verbose:
-#             print(f"ν={nu}: REML={-val:.3f}, θ={np.exp(res.x)}")
+#             print(f"ν={nu}: profile ML={-val:.3f}, θ={np.exp(res.x)}")
 #         if val < best["obj"]:
 #             best = {"obj": val, "nu": nu, "theta_log": res.x, **cache, "opt": res}
 #     return best
 
-def fit_matern_reml(
+def fit_matern_profile_ml(
     df: pd.DataFrame,
     cluster_col: str,
     x_col: str,
@@ -369,7 +372,7 @@ def fit_matern_reml(
     verbose: bool = False,
 ) -> Dict:
     """
-    Fit Matérn parameters by REML with ν chosen by profile over nu_grid.
+    Fit Matérn parameters by profile Gaussian ML with ν chosen by profile over nu_grid.
 
     start: optional (sigma2, rho, tau2) initial values; if None, crude method-of-moments.
 
@@ -379,7 +382,7 @@ def fit_matern_reml(
       - theta (exp(theta_log))
       - mu_hat
       - var_mu_hat
-      - REML objective value
+      - profile ML objective value
       - optimizer result
       - cached covariance quantities
     """
@@ -407,7 +410,7 @@ def fit_matern_reml(
         theta0 = np.log(np.array(start))
 
         res = optimize.minimize(
-            lambda th: reml_objective(
+            lambda th: profile_ml_objective(
                 th, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget
             )[0],
             theta0,
@@ -416,12 +419,12 @@ def fit_matern_reml(
             options=dict(maxiter=500),
         )
 
-        val, cache = reml_objective(
+        val, cache = profile_ml_objective(
             res.x, df, cluster_col, x_col, y_col, diff_col, nu, per_cluster_nugget
         )
 
         if verbose:
-            print(f"ν={nu}: REML={-val:.3f}, θ={np.exp(res.x)}")
+            print(f"ν={nu}: profile ML={-val:.3f}, θ={np.exp(res.x)}")
 
         if val < best["obj"]:
             best = {
@@ -441,7 +444,7 @@ def fit_matern_reml(
 
 #    try:
 #        # cache must expose a linear solver for Σ^{-1} v
-#        # this is already true in your REML code
+#        # this is already true in the profile ML objective code
 #        Sinv_1 = best["solve"](one)
 #        Sinv_y = best["solve"](y)
 #    except:
@@ -728,8 +731,7 @@ def lr_ci_for_mu(
 
 def compute_icc(df: pd.DataFrame, cluster_col: str, diff_col: str) -> float:
     md = smf.mixedlm(f"{diff_col} ~ 1", df, groups=df[cluster_col])
-    fit = md.fit(reml=True, method="lbfgs", disp=False)
-    tau2 = float(fit.cov_re.iloc[0,0]); sig2 = float(fit.scale)
+    fit = md.fit(reml=True, method="lbfgs", disp=False)  # reml=True for sensitivity ICC; not the primary profile ML estimator
     return tau2 / (tau2 + sig2) if (tau2 + sig2) > 0 else 0.0
 
 def morans_I(df: pd.DataFrame, cluster_col: str, x_col: str, y_col: str, diff_col: str, k=4) -> pd.DataFrame:
@@ -788,7 +790,8 @@ def mixed_effects_mu(df, cluster_col: str, diff_col: str, alpha: float):
     Mixed-effects: diff ~ 1 + (1|cluster).
     Robust to boundary/singularity:
       - If rpy2 + lmerTest available -> use Kenward–Roger.
-      - Else statsmodels MixedLM (REML). If tau^2 ~ 0 or singular/boundary warnings,
+      - Else statsmodels MixedLM with reml=True (sensitivity analysis; not the primary profile ML estimator).
+        If tau^2 ~ 0 or singular/boundary warnings,
         fall back to cluster-robust OLS CI for μ and annotate method.
     """
     G = df[cluster_col].nunique()
@@ -800,7 +803,7 @@ def mixed_effects_mu(df, cluster_col: str, diff_col: str, alpha: float):
             r_df = pandas2ri.py2rpy(df[[cluster_col, diff_col]].copy())
             ro.globalenv['r_df'] = r_df
             ro.r(f'''
-                fit <- lmer({diff_col} ~ 1 + (1|{cluster_col}), data=r_df, REML=TRUE)
+                fit <- lmer({diff_col} ~ 1 + (1|{cluster_col}), data=r_df, REML=TRUE)  # profile ML is the primary estimator; REML used here for sensitivity mixed-effects only
                 est  <- fixef(fit)[1]
                 se   <- as.numeric(coef(summary(fit))[1, "Std. Error"])
                 dfKR <- as.numeric(coef(summary(fit))[1, "df"])
@@ -818,8 +821,7 @@ def mixed_effects_mu(df, cluster_col: str, diff_col: str, alpha: float):
     with warnings.catch_warnings(record=True) as wlist:
         warnings.simplefilter("always")
         md = smf.mixedlm(f"{diff_col} ~ 1", df, groups=df[cluster_col])
-        fit = md.fit(reml=True, method="lbfgs", disp=False)
-        # collect warnings
+        fit = md.fit(reml=True, method="lbfgs", disp=False)  # reml=True for sensitivity mixed-effects; not the primary profile ML estimator
         for w in wlist:
             if issubclass(w.category, (UserWarning, ConvergenceWarning)):
                 warn_msgs.append(str(w.message))
@@ -918,14 +920,14 @@ def run_pubgrade_spatial_tost(
     spatial_policy: str = "auto"
 ) -> Dict[str, object]:
     """
-    Full, publication-grade spatial TOST workflow using Matérn REML + LR CI for μ.
+    Spatial TOST workflow using Matérn profile Gaussian ML + LR CI for μ.
 
     Parameters
     ----------
     df : DataFrame with columns [cluster_id, x, y, diff]; diff in SAV units (A - B).
     margins : sequence of Δ values to test for equivalence (e.g., range(1,101)).
     alpha : size for CI-in-TOST; LR CI uses χ^2_1(1-2α).
-    nu_grid : candidate Matérn smoothness values for profile REML (extend if desired).
+    nu_grid : candidate Matérn smoothness values for profile ML (extend if desired).
     per_cluster_nugget : if True, include τ^2 I within each cluster block.
     do_sensitivity : if True, also run mixed-effects, cluster OLS, and cluster bootstrap.
     moran_k : k for k-NN weights in Moran’s I (if PySAL available).
@@ -934,7 +936,7 @@ def run_pubgrade_spatial_tost(
 
     spatial_policy : {"auto","force_spatial","force_nonspatial","diagnose_then_nonspatial"}
         - "auto" (default): run diagnostics, use spatial model if dependence is flagged, else IID.
-        - "force_spatial": skip decision and use spatial Matérn REML + LR CI.
+        - "force_spatial": skip decision and use spatial Matérn profile ML + LR CI.
         - "force_nonspatial": skip spatial modeling and use non-spatial IID TOST.
         - "diagnose_then_nonspatial": run diagnostics but ignore result; use non-spatial IID TOST.
 
@@ -1062,14 +1064,14 @@ def run_pubgrade_spatial_tost(
     notes = []
 
     if use_spatial:
-        # Spatial (Matérn REML + LR CI for μ)
-        best = fit_matern_reml(df, cluster_col, x_col, y_col, diff_col,
+        # Spatial (Matérn profile Gaussian ML + LR CI for μ)
+        best = fit_matern_profile_ml(df, cluster_col, x_col, y_col, diff_col,
                                nu_grid=nu_grid, per_cluster_nugget=per_cluster_nugget)
         mu_hat = float(best["mu_hat"])
         ci_mu = lr_ci_for_mu(df, cluster_col, x_col, y_col, diff_col, theta=best, alpha=alpha)
 
-        summaries["Matérn REML + LR CI"] = equiv_table(mu_hat, ci_mu, margins)
-        method2ci["Matérn REML + LR CI"] = (mu_hat, ci_mu)
+        summaries["Matérn profile ML + LR CI"] = equiv_table(mu_hat, ci_mu, margins)
+        method2ci["Matérn profile ML + LR CI"] = (mu_hat, ci_mu)
 
         model_block = {
             "nu_star": best["nu"],
@@ -1102,7 +1104,7 @@ def run_pubgrade_spatial_tost(
         plot_ci_methods(method2ci, os.path.join(out_dir, "mu_ci_by_method.png"))
 
     # Decide primary method (what downstream should treat as the “official” result)
-    primary_method = "Matérn REML + LR CI" if use_spatial else "IID OLS"
+    primary_method = "Matérn profile ML + LR CI" if use_spatial else "IID OLS"
 
     policy_info = {
         "spatial_policy": spatial_policy,
@@ -1124,7 +1126,7 @@ def render_one_page_report(
     report_margins,
     out_dir: str = "tost_pub",
     title: str = "Spatially-Aware TOST Summary",
-    subtitle: str = "Publication-grade Matérn REML + LR CI, with sensitivity checks",
+    subtitle: str = "Matérn profile Gaussian ML + LR CI, with sensitivity checks",
     methods_note: str = None,
     ci_figure_path: str = None,
     compile_pdf: bool = True
@@ -1162,8 +1164,8 @@ def render_one_page_report(
     Notes
     -----
     Layout: tight margins, small font, one-column table for diagnostics and Δ-equivalence.
-    The “Methods” paragraph gives a citeable, publication-grade workflow:
-      - Matérn covariance + REML for (σ², ρ, τ²) with ν via profile grid [Cressie, 1993; Stein, 1999]
+    The "Methods" paragraph gives a citeable workflow:
+      - Matérn covariance + profile Gaussian ML for (σ², ρ, τ²) with ν via profile grid [Cressie, 1993; Stein, 1999]
       - μ̂ via GLS; **likelihood-ratio CI** for μ (1 df) feeds the CI-in-TOST rule [Schuirmann, 1987; Lakens, 2017]
       - Sensitivity: mixed-effects with Kenward–Roger df [Kenward & Roger, 1997; Bates et al., 2015],
         cluster-robust OLS [Bell & McCaffrey, 2002; Pustejovsky & Tipton, 2018], and cluster bootstrap [Davison & Hinkley, 1997].
@@ -1177,7 +1179,7 @@ def render_one_page_report(
     model = results.get("model", {})
     summaries = results.get("summaries", {})
 
-    main_name = "Matérn REML + LR CI"
+    main_name = "Matérn profile ML + LR CI"
     main_df = summaries.get(main_name)
     if main_df is None or main_df.empty:
         raise ValueError(f"Expected summaries['{main_name}'] in results.")
@@ -1228,7 +1230,7 @@ def render_one_page_report(
     methods_txt = textwrap.dedent(r"""
         \textbf{Estimand \& test.} We test equivalence of the population mean difference $\mu$ (SAV units) using the CI-based TOST rule \cite{Schuirmann1987,Lakens2017}: for margin $\Delta$, declare equivalence iff the $(1-2\alpha)$ CI for $\mu$ lies entirely within $[-\Delta,+\Delta]$.
 
-        \textbf{Spatial model.} We model spatial dependence within clusters using a Gaussian process with Matérn covariance $C(h)$ \cite{Cressie1993,Stein1999}; hyper-parameters $(\sigma^2,\rho,\tau^2)$ are estimated by REML \cite{Harville1977} with $\nu$ chosen by profile REML over a small grid. The GLS estimator is $\hat\mu=(\mathbf{1}^\top\Sigma^{-1}\mathbf{y})/(\mathbf{1}^\top\Sigma^{-1}\mathbf{1})$; uncertainty for $\mu$ uses a 1-df likelihood-ratio CI obtained by inverting the profile likelihood with $\Sigma$ fixed at $\hat\theta$.
+        \textbf{Spatial model.} We model spatial dependence within clusters using a Gaussian process with Matérn covariance $C(h)$ \cite{Cressie1993,Stein1999}; hyper-parameters $(\sigma^2,\rho,\tau^2)$ are estimated by profile Gaussian ML \cite{Harville1977} with $\nu$ chosen by profile ML over a small grid. The GLS estimator is $\hat\mu=(\mathbf{1}^\top\Sigma^{-1}\mathbf{y})/(\mathbf{1}^\top\Sigma^{-1}\mathbf{1})$; uncertainty for $\mu$ uses a 1-df likelihood-ratio CI obtained by inverting the profile likelihood with $\Sigma$ fixed at $\hat\theta$.
 
         \textbf{Sensitivity.} We report (i) mixed-effects with random intercept by cluster and Kenward--Roger df if available \cite{Kenward1997,Bates2015}; (ii) cluster-robust OLS (clusters as clusters) with small-$G$ caution \cite{Bell2002,Pustejovsky2018}; and (iii) cluster (block) bootstrap CIs for $\mu$ \cite{Davison1997}. Diagnostics include ICC, Moran's $I$, empirical variograms, and IID vs clustered SE inflation.
     """).strip()
@@ -1277,7 +1279,7 @@ def render_one_page_report(
 $subtitle \hfill $date
 
 \vspace{0.5em}
-\noindent\textbf{Model:} Matérn REML + LR CI for $\mu$; selected $\nu=$nu_star; $\hat\sigma^2=$sigma2, $\hat\rho=$rho, $\hat\tau^2=$tau2; $\hat\mu=$mu_hat; CI$_\text{LR}$ = [$ci_lo, $ci_hi].
+\noindent\textbf{Model:} Matérn profile ML + LR CI for $\mu$; selected $\nu=$nu_star; $\hat\sigma^2=$sigma2, $\hat\rho=$rho, $\hat\tau^2=$tau2; $\hat\mu=$mu_hat; CI$_\text{LR}$ = [$ci_lo, $ci_hi].
 
 \vspace{0.5em}
 \noindent\textbf{Diagnostics (overview).}
@@ -1380,12 +1382,12 @@ import pandas as pd
 @dataclass(frozen=True)
 class SpatialConfig:
     """
-    Parameters controlling the Matérn REML fit.
+    Parameters controlling the Matérn profile Gaussian ML fit.
 
     Parameters
     ----------
     nu_grid
-        Candidate Matérn smoothness values ν considered in the REML profile search.
+        Candidate Matérn smoothness values ν considered in the profile ML search.
     per_cluster_nugget
         Whether to include a nugget term (τ² I) inside each cluster block.
     verbose_diagnostics
@@ -1400,7 +1402,7 @@ class SpatialConfig:
 
 class SpatialTOST:
     """
-    Publication-grade spatial TOST using Matérn GLS (REML) + LR CI for μ.
+    Spatial TOST using Matérn GLS (profile Gaussian ML) + LR CI for μ.
 
     Parameters
     ----------
@@ -1411,7 +1413,7 @@ class SpatialTOST:
     x, ycoord : str
         Spatial coordinate column names.
     config : SpatialConfig
-        REML fit settings.
+        Profile ML fit settings.
     """
 
     def __init__(
@@ -1458,7 +1460,7 @@ class SpatialTOST:
         #print("Min/Max of diff:", dfp["diff"].min(), dfp["diff"].max())
         #print("First 10 diff values:", dfp["diff"].head(10).to_list())
 
-        theta = fit_matern_reml(
+        theta = fit_matern_profile_ml(
             df=dfp,
             cluster_col="cluster_id",
             x_col="x",
@@ -1514,7 +1516,7 @@ class SpatialTOST:
                 theta=theta,
                 alpha=alpha,
             )
-            method = "Matérn GLS (REML) + LR CI"
+            method = "Matérn GLS (profile Gaussian ML) + LR CI"
 
         if self.config.verbose_diagnostics:
             print(f"  LR CI: [{float(ci_low):.6g}, {float(ci_high):.6g}]")

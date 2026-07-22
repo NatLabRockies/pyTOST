@@ -46,9 +46,9 @@ def test_equal_weighted_variance_matches_quadratic_form():
     d = _panel(n_space=9, n_time=2, seed=3)
     d1 = d.groupby(["x", "y"], as_index=False)["diff"].mean()
     d1["cluster_id"] = 0
-    from pyTOST.engines.spatial_tost import fit_matern_reml, _build_sigma_and_stacks
+    from pyTOST.engines.spatial_tost import fit_matern_profile_ml, _build_sigma_and_stacks
     dfp = d1.rename(columns={"cluster_id": "cluster_id", "diff": "diff"})
-    theta = fit_matern_reml(df=dfp, cluster_col="cluster_id", x_col="x", y_col="y",
+    theta = fit_matern_profile_ml(df=dfp, cluster_col="cluster_id", x_col="x", y_col="y",
                             diff_col="diff", nu_grid=(1.5,), per_cluster_nugget=True)
     Sigma, yv, ones = _build_sigma_and_stacks(dfp, "cluster_id", "x", "y", "diff",
                                               sigma2=theta["sigma2"], rho=theta["rho"],

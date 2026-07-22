@@ -15,7 +15,7 @@ Engines
 - IIDTOST: classic t-based CI for the mean difference (i.i.d. residuals).
 - ClusterTOST: valid inference with intra-cluster correlation (e.g., clusters, sites, or grouped units).
 - TemporalTOST: valid inference with serial correlation (e.g., time series).
-- SpatialTOST: Gaussian Matérn GLS (REML) + likelihood-ratio CI.
+- SpatialTOST: Gaussian Matérn GLS (profile Gaussian ML) + likelihood-ratio CI.
 - SpatioTemporalTOST: spatiotemporal inference for balanced panels and IVW fallback for unbalanced panels.
 
 Sensitivity analyses
@@ -35,7 +35,7 @@ from .engines.iid_tost import IIDTOST
 from .engines.cluster_tost import ClusterTOST
 from .engines.temporal_tost import TemporalTOST
 
-# Publication-grade spatial engines
+# Spatial engines
 from .engines.spatial_tost import SpatialTOST, SpatialConfig
 from .engines.spatiotemporal_tost import SpatioTemporalTOST, SpatioTemporalConfig
 from .engines.building_aware import BuildingAwareSpatioTemporalTOST, BuildingAwareConfig

@@ -70,13 +70,20 @@ def cr2_mean(y: np.ndarray, groups: np.ndarray, alpha: float = 0.05):
     # IID SE
     se_iid = float(y.std(ddof=1) / np.sqrt(N))
 
-    # Bell-McCaffrey / Satterthwaite df for the scalar mean.
-    # Working (homoskedastic) model: contributions g_g = adj_g * (1_{n_g} centered
-    # by H). df = (sum_g p_g)^2 / sum_g p_g^2 with p_g = adj_g^2 * n_g_eff where the
-    # effective per-cluster leverage under X=1 is n_g*(1 - n_g/N). This reduces to
-    # the standard Satterthwaite form using the CR2 cluster variance weights.
-    w = (adj ** 2) * (n_g * (1.0 - n_g / N)) / N  # per-cluster weight ~ contribution
-    df_bm = float((w.sum() ** 2) / (w ** 2).sum())
+    # Bell-McCaffrey / Satterthwaite df via the clubSandwich P-matrix.
+    # For the intercept-only model, the CR2 adjustment factor is a_g = (1 - n_g/N)^{-1/2}
+    # and the working-model per-cluster contribution to Var(mu_hat) under
+    # homoskedasticity is p_g = n_g * a_g^2 / N^2. The cross-cluster coupling
+    # comes from the shared intercept: h_g = a_g * n_g / N^{1.5}. The G x G
+    # matrix P = diag(p_g) - h h^T then gives
+    #   df = trace(P)^2 / sum(P .* P)
+    # (Pustejovsky & Tipton 2018; clubSandwich 0.7.0). This reduces to G-1 for
+    # balanced clusters, in contrast to the previous scalar-weight approximation.
+    a = adj
+    p_g = n_g * a ** 2 / N ** 2
+    h_g = a * n_g / N ** 1.5
+    P = np.diag(p_g) - np.outer(h_g, h_g)
+    df_bm = float((np.trace(P) ** 2) / (P * P).sum())
     df_bm = max(df_bm, 1.0)
 
     se_cr2 = np.sqrt(v_cr2)
