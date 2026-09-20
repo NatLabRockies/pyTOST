@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyTOST"
-version = "0.15.0"
+version = "0.17.0"
 description = "Dependence-aware equivalence testing with validation for IID, clustered, temporal, spatial, and spatiotemporal data."
 readme = "README.md"
 requires-python = ">=3.10"

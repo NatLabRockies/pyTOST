@@ -14,6 +14,8 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-20
+
 ### Added
 
 - `TOSTResult.summary()` renders a human-readable equivalence decision table covering

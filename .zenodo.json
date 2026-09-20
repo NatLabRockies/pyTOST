@@ -1,12 +1,12 @@
 {
   "title": "pyTOST: Dependence-aware equivalence testing with validation in Python",
-  "description": "pyTOST is a Python package for dependence-aware equivalence testing (TOST) with validation. It provides inference engines for IID, clustered, temporal, spatial, and spatiotemporal paired-difference data, together with sensitivity analyses and structured synthetic data generation.",
+  "description": "pyTOST is a Python package for dependence-aware equivalence testing (TOST) with validation. It provides inference engines for IID, clustered, temporal, spatial, spatiotemporal, and heteroskedastic paired-difference data, together with sensitivity analyses and structured synthetic data generation.",
   "upload_type": "software",
   "license": "bsd-3-clause",
   "creators": [
     {
       "name": "Hettinger, Dylan",
-      "affiliation": "National Laboratory of the Rockies (NLR)",
+      "affiliation": "National Laboratory of the Rockies (NLR), operated by Alliance for Energy Innovation, LLC",
       "orcid": "0009-0000-5769-2333"
     }
   ],
