@@ -432,6 +432,8 @@ The near-term priorities are:
 - cleanup of the canonical demo notebook
 - harmonization of documentation and JOSS paper materials
 
+Release-by-release changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
 ## Citation
 
 If you use pyTOST in research, please cite the accompanying JOSS paper once available.
