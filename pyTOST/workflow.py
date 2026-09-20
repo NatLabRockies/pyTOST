@@ -16,7 +16,7 @@ The workflow can optionally compute:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 import pandas as pd
 
@@ -53,6 +53,12 @@ class WorkflowOptions:
 
     # Block size (same units as x/y) for spatial block bootstrap
     spatial_block_size: float = 1.0
+
+    # Newey–West truncation lag for the temporal engine.
+    #   - None   -> use the engine default (4)
+    #   - int    -> fix the truncation lag
+    #   - "auto" -> select from the sample size via auto_hac_lags()
+    max_lag: Optional[Union[int, str]] = None
 
 def _infer_cross_cluster_dependence(
     *,
@@ -149,7 +155,8 @@ def run_tost(
     elif eng == "temporal":
         if not time:
             raise ValueError("engine='temporal' requires `time` column name.")
-        primary = TemporalTOST(y, time).fit(df, alpha, margins)
+        temporal_kwargs = {} if options.max_lag is None else {"hac_lags": options.max_lag}
+        primary = TemporalTOST(y, time, **temporal_kwargs).fit(df, alpha, margins)
 
     elif eng == "spatial":
         if not (cluster and x and ycoord):

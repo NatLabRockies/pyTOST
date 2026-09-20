@@ -18,17 +18,85 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 import statsmodels.api as sm
-from typing import List
+from typing import List, Union
+
+LagSpec = Union[int, str]
+
+
+def auto_hac_lags(n: int) -> int:
+    """Data-driven Newey--West truncation lag.
+
+    Uses the common plug-in rule ``floor(4 * (n / 100) ** (2 / 9))`` (Newey & West,
+    1994), which grows slowly with the sample size. Returns 0 for empty input.
+
+    Parameters
+    ----------
+    n : int
+        Number of time-ordered observations.
+
+    Returns
+    -------
+    int
+        Non-negative truncation lag.
+    """
+    if n <= 0:
+        return 0
+    return int(np.floor(4.0 * (n / 100.0) ** (2.0 / 9.0)))
+
+
+def _validate_lag_spec(hac_lags: LagSpec) -> LagSpec:
+    if isinstance(hac_lags, str):
+        if hac_lags.strip().lower() != "auto":
+            raise ValueError(
+                f"max_lag={hac_lags!r} is not valid; use an integer >= 0 or 'auto'."
+            )
+        return "auto"
+
+    if isinstance(hac_lags, bool) or not isinstance(hac_lags, (int, np.integer)):
+        raise ValueError(
+            f"max_lag={hac_lags!r} is not valid; use an integer >= 0 or 'auto'."
+        )
+    if hac_lags < 0:
+        raise ValueError(f"max_lag={hac_lags!r} is not valid; hac_lags must be >= 0.")
+    return int(hac_lags)
+
 
 class TemporalTOST:
-    def __init__(self, y: str, time: str, hac_lags: int = 4, require_unique_times: bool = False):
+    def __init__(
+        self,
+        y: str,
+        time: str,
+        hac_lags: LagSpec = 4,
+        require_unique_times: bool = False,
+    ):
+        """
+        Parameters
+        ----------
+        y : str
+            Response column (paired difference).
+        time : str
+            Time-ordering column.
+        hac_lags : int or "auto", default 4
+            Newey--West truncation lag. An integer fixes the lag. ``"auto"`` selects it
+            from the sample size using :func:`auto_hac_lags`, which is preferable when
+            the series length is not known in advance. The default is kept at 4 so that
+            results from earlier versions remain reproducible.
+        require_unique_times : bool
+            When True, raise ValueError if any time value appears more than once.
+        """
         self.y = y
         self.time = time
-        self.hac_lags = hac_lags
+        self.hac_lags = _validate_lag_spec(hac_lags)
         # When True, raise ValueError if any time value appears more than once in the
         # data passed to fit().  On the publication path (one observation per ordered
         # time point) set this to True to prevent accidental use of raw, un-aggregated data.
         self.require_unique_times = require_unique_times
+
+    def _resolve_lags(self, n: int) -> tuple[int, str]:
+        """Return the truncation lag to use and how it was chosen."""
+        if self.hac_lags == "auto":
+            return auto_hac_lags(n), "auto"
+        return int(self.hac_lags), "fixed"
 
     def _hac(self, df, alpha):
         df2 = df.sort_values(self.time)
@@ -41,10 +109,13 @@ class TemporalTOST:
                     "Aggregate to one observation per time point before fitting."
                 )
         X = np.ones((len(df2),1))
-        fit = sm.OLS(df2[self.y].to_numpy(float), X).fit(cov_type="HAC", cov_kwds={"maxlags": self.hac_lags})
+        lags, how = self._resolve_lags(len(df2))
+        fit = sm.OLS(df2[self.y].to_numpy(float), X).fit(cov_type="HAC", cov_kwds={"maxlags": lags})
         mu = float(fit.params[0]); se = float(fit.bse[0])
         zcrit = stats.norm.ppf(1-alpha)  # HAC is asymptotic
-        return mu, (mu - zcrit*se, mu + zcrit*se), np.inf, f"IID mean with Newey–West HAC (lags={self.hac_lags})"
+        suffix = ", auto" if how == "auto" else ""
+        label = f"IID mean with Newey–West HAC (lags={lags}{suffix})"
+        return mu, (mu - zcrit*se, mu + zcrit*se), np.inf, label
 
     def _glsar1(self, df, alpha):
         df2 = df.sort_values(self.time)

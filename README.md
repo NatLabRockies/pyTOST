@@ -303,6 +303,22 @@ options = WorkflowOptions(
 
 Then pass `options=options` into `run_tost(...)`.
 
+### Controlling the temporal HAC lag
+
+The temporal engine uses a Newey–West HAC variance estimator with a truncation lag of
+`4` by default. Use `max_lag` to override it — either with a fixed integer, or with
+`"auto"` to select the lag from the sample size via the Newey–West (1994) plug-in rule
+`floor(4 * (n / 100) ** (2 / 9))`:
+
+```python
+options = WorkflowOptions(max_lag="auto")   # data-driven lag
+options = WorkflowOptions(max_lag=12)       # fixed lag
+```
+
+Longer lags admit more autocorrelation into the variance estimate and generally widen
+the interval. `"auto"` is recommended when the series length varies between analyses;
+the default of `4` is retained so results from earlier versions stay reproducible.
+
 ## Synthetic data generation
 
 pyTOST includes structured synthetic data generators for reproducible benchmarking, testing, calibration, and examples. These utilities are ancillary to the inference engines but are part of the package and are used in the demonstration notebook and test plan.
