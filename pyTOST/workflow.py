@@ -29,6 +29,7 @@ from .engines.spatiotemporal_tost import SpatioTemporalTOST, SpatioTemporalConfi
 from .engines.heteroskedastic_tost import HeteroskedasticTOST
 from .engines.robust_location_tost import RobustLocationTOST
 from .bootstrap import cluster_bootstrap, spatial_block_bootstrap, spatial_within_cluster_block_bootstrap
+from .results import TOSTResult
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,7 @@ def run_tost(
     spatial_config: SpatialConfig | None = None,
     spatiotemporal_config: SpatioTemporalConfig | None = None,
     options: WorkflowOptions | None = None,
-) -> dict[str, Any]:
+) -> TOSTResult:
     """
     Execute a chosen TOST engine and optional sensitivity analyses.
 
@@ -124,11 +125,14 @@ def run_tost(
 
     Returns
     -------
-    dict with keys:
-      - engine
-      - primary (DataFrame)
-      - sensitivity (dict[str, DataFrame]) if enabled
-      - bootstrap (dict) if enabled and cluster provided
+    TOSTResult
+        A ``dict`` subclass with keys:
+          - engine
+          - primary (DataFrame)
+          - sensitivity (dict[str, DataFrame]) if enabled
+          - bootstrap (dict) if enabled and cluster provided
+
+        Call :meth:`TOSTResult.summary` for a human-readable decision table.
     """
     options = options or WorkflowOptions()
     eng = engine.lower().strip()
@@ -168,7 +172,7 @@ def run_tost(
     else:
         raise ValueError(f"Unknown engine={engine!r}. Must be one of iid/cluster/temporal/spatial/spatiotemporal.")
 
-    out: dict[str, Any] = {"engine": eng, "primary": primary}
+    out: TOSTResult = TOSTResult({"engine": eng, "primary": primary})
 
     # Optional sensitivity analyses (do not alter primary result)
     if options.do_sensitivity:

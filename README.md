@@ -215,6 +215,35 @@ The `primary` table typically includes:
 - `ci_low`, `ci_high`: confidence interval bounds
 - `equivalent`: whether the CI is entirely inside `(-Δ, Δ)`
 
+### Human-readable summary
+
+The returned object is a `dict` subclass (`TOSTResult`), so all dictionary access
+shown above keeps working. It also provides `summary()`, which renders the
+equivalence decision as a report-ready table:
+
+```python
+res = run_tost(df, y="diff", margins=[0.25, 0.5], engine="cluster", cluster="cluster_id")
+print(res.summary())
+```
+
+```text
+pyTOST equivalence summary
+==========================
+
+Engine: cluster
+Method: OLS + cluster-robust SE (df=2)
+
+Primary result
+--------------
+Delta  mu_hat  ci_low  ci_high  Decision
+-----  ------  ------  -------  ----------
+0.25   0.1133  0.0669  0.1598   EQUIVALENT
+0.5    0.1133  0.0669  0.1598   EQUIVALENT
+```
+
+Sensitivity analyses and the bootstrap sanity check are included in the report when
+they were enabled. Use `summary(precision=...)` to control the number of decimals.
+
 ## Sensitivity analyses and validation
 
 The workflow can optionally include:

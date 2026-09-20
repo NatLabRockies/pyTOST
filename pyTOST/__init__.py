@@ -29,6 +29,7 @@ from __future__ import annotations
 
 # Workflow (strict, no plug-ins / no fallbacks)
 from .workflow import run_tost, WorkflowOptions
+from .results import TOSTResult
 
 # Core engines
 from .engines.iid_tost import IIDTOST
@@ -49,6 +50,7 @@ __all__ = [
     # workflow
     "run_tost",
     "WorkflowOptions",
+    "TOSTResult",
     # engines
     "IIDTOST",
     "ClusterTOST",
