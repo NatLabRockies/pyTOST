@@ -1390,11 +1390,22 @@ class SpatialConfig:
     ----------
     nu_grid
         Candidate Matérn smoothness values ν considered in the profile ML search.
+        Smoothness is weakly identified in practice, so it is selected by grid search
+        rather than optimized. Larger ν implies a smoother spatial field;
+        ν = 0.5 corresponds to exponential covariance.
     per_cluster_nugget
-        Whether to include a nugget term (τ² I) inside each cluster block.
+        Whether to include a nugget term (τ² I) inside each cluster block. The nugget
+        absorbs measurement error and micro-scale variation. Disable it only when
+        observations are known to be noise-free.
     verbose_diagnostics
         If True, print diagnostic summaries that help detect covariance/SE
         pathologies (e.g., variance collapse) and compare estimands.
+    point_estimator
+        Which quantity to estimate. ``"gls"`` (default) uses the GLS mean with a
+        profile likelihood-ratio interval, weighting observations by their information
+        content under the fitted covariance. ``"equal_weighted"`` targets the
+        unweighted sample mean with a Wald interval, retaining dependence-aware
+        uncertainty while keeping the estimand comparable to simpler analyses.
     """
 
     nu_grid: Tuple[float, ...] = (0.5, 1.5, 2.5)
@@ -1406,6 +1417,57 @@ class SpatialTOST:
     """
     Spatial TOST using Matérn GLS (profile Gaussian ML) + LR CI for μ.
 
+    Use this engine when paired differences are spatially correlated *within* clusters
+    and independent *across* them. Ignoring that correlation understates uncertainty,
+    because nearby observations carry overlapping rather than independent information.
+
+    Covariance estimation procedure
+    -------------------------------
+    The covariance matrix is block-diagonal by cluster, ``Σ = diag{Σ_b}``. Each block is
+    built from the within-cluster coordinates as
+
+    ``Σ_b = σ² · M_ν(D_b / ρ) + τ² I``
+
+    where ``D_b`` holds pairwise Euclidean distances between the cluster's points and
+    ``M_ν`` is the Matérn correlation function with smoothness ``ν``. The three
+    parameters are:
+
+    - ``σ²`` — the partial sill, the variance of the spatially structured component.
+    - ``ρ`` — the range, the distance over which correlation decays. Expressed in the
+      same units as ``x`` and ``ycoord``.
+    - ``τ²`` — the nugget, variance that is not spatially structured (measurement error
+      and micro-scale variation). Included when ``config.per_cluster_nugget`` is True.
+
+    Estimation proceeds as follows:
+
+    1. **Starting values** are chosen by a crude method of moments: ``σ²`` from 70% of
+       the marginal variance of ``y``, ``τ²`` from 10% of it, and ``ρ`` from the median
+       within-cluster pairwise distance. This keeps the optimizer in a sensible region.
+    2. **Given ``θ = (σ², ρ, τ²)``**, the mean is profiled out in closed form using the
+       GLS estimator ``μ̂(θ) = (1ᵀ Σ⁻¹ y) / (1ᵀ Σ⁻¹ 1)``, so the likelihood depends on
+       ``θ`` alone. This is the *profile* in profile ML.
+    3. **``θ`` is optimized** on the log scale by L-BFGS-B, which enforces positivity
+       and keeps ``Σ`` well conditioned; values are additionally floored and capped.
+    4. **``ν`` is selected by grid search.** Smoothness is poorly identified from data
+       at typical sample sizes, so rather than optimizing it, steps 2–3 are repeated for
+       each candidate in ``config.nu_grid`` and the value with the best profile
+       likelihood is kept.
+
+    Inference for μ
+    ---------------
+    The confidence interval is obtained by inverting the profile likelihood-ratio test
+    for ``μ`` rather than from a Wald standard error. The LR interval need not be
+    symmetric about ``μ̂`` and is generally better behaved when the covariance
+    parameters are uncertain, since it does not treat ``θ̂`` as if it were known
+    exactly. Equivalence is then declared at margin ``Δ`` when the interval lies
+    entirely inside ``(-Δ, Δ)``.
+
+    Setting ``config.point_estimator="equal_weighted"`` instead targets the unweighted
+    sample mean while retaining dependence-aware uncertainty. This is useful when the
+    estimand must stay comparable to a simpler analysis, because GLS re-weights
+    observations by their information content and therefore estimates a different
+    quantity.
+
     Parameters
     ----------
     y : str
@@ -1413,9 +1475,22 @@ class SpatialTOST:
     cluster : str
         Cluster/group id column name. Required because Σ is block-diagonal by cluster.
     x, ycoord : str
-        Spatial coordinate column names.
+        Spatial coordinate column names. Must be numeric and finite; non-finite values
+        raise ``ValueError`` rather than failing inside the optimizer.
     config : SpatialConfig
         Profile ML fit settings.
+
+    Notes
+    -----
+    Because ``ρ`` is estimated in coordinate units, ``x`` and ``ycoord`` should be on a
+    consistent, preferably projected, scale. Supplying raw longitude/latitude makes the
+    isotropic distance assumption inaccurate away from the equator.
+
+    References
+    ----------
+    - Stein (1999), *Interpolation of Spatial Data*: Matérn covariance.
+    - Harville (1977): profile/restricted likelihood for covariance parameters.
+    - Pawitan (2001), *In All Likelihood*: profile likelihood-ratio intervals.
     """
 
     def __init__(
