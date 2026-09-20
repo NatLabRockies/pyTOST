@@ -31,6 +31,12 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
   size via the Newey–West (1994) plug-in rule, exposed as `auto_hac_lags()`.
 - Worked example documenting a full SAV method-equivalence analysis, in
   `docs/sav_worked_example.md`, reproducible via `scripts/sav_worked_example.py`.
+- Monte Carlo and analytical validation of confidence-interval coverage for the IID and
+  cluster engines. The IID interval is verified to match the closed-form Student-t
+  interval exactly; simulated coverage is 0.892 (IID engine on IID data) and 0.907
+  (cluster engine on clustered data) against a nominal 0.900. The same simulation
+  records the motivating failure quantitatively: applying the IID engine to clustered
+  data yields only 0.613 coverage.
 - Figure in `paper.md` comparing engine confidence intervals on a shared synthetic
   dataset, reproducible via `scripts/make_paper_figure.py`.
 - This changelog.
