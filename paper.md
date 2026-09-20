@@ -13,7 +13,7 @@ authors:
     affiliation: "1"
 affiliations:
   - index: 1
-    name: "National Laboratory of the Rockies (NLR)"
+    name: "National Laboratory of the Rockies (NLR), operated by Alliance for Energy Innovation, LLC"
 date: 2026-06-22
 bibliography: paper.bib
 repository: https://github.com/NatLabRockies/pyTOST
