@@ -87,6 +87,10 @@ In realistic validation settings, however, equivalence decisions are often drive
 
 - **Spatiotemporal engine.** For balanced panels, fits a separable AR(1)$\otimes$Matérn model by penalized ML (MAP-regularized to stabilize near-unidentifiable solutions) with a parametric-bootstrap CI for $\mu$ [@EfronTibshirani1993; @CressieWikle2011]. For unbalanced panels, fits spatial models per time slice and combines estimates by inverse-variance weighting with a $t$-CI at $df = T-1$, where $T$ is the number of time slices.
 
+The practical consequence of matching the engine to the dependence structure is shown in \autoref{fig:engines}. All five engines are applied to the same synthetic spatiotemporal panel and, run in equal-weighted mode, all target the same estimand, so they return an identical point estimate $\hat{\mu} = 0.26$. Their confidence intervals differ substantially: the IID engine, which ignores the spatial and temporal dependence that is genuinely present in the data, reports an interval roughly 2.5 times narrower than the cluster-robust engine and 6 times narrower than the spatiotemporal engine. At $\Delta = 0.6$ this difference is decision-relevant — the IID engine declares equivalence, while the cluster and spatiotemporal engines do not. Understating dependence therefore does not merely produce optimistic intervals; it can reverse the validation conclusion.
+
+![Confidence intervals for the mean paired difference $\mu$ from all five `pyTOST` engines applied to the same synthetic spatiotemporal dataset ($n = 192$; 24 sites $\times$ 8 times), with equivalence margin $\Delta = 0.6$ shown as dashed lines. Green intervals fall entirely inside $(-\Delta, \Delta)$ and yield an equivalence decision; red intervals do not. Because all engines are run against the same estimand, the figure isolates the effect of the dependence assumption on interval width. The figure is reproduced by `scripts/make_paper_figure.py`.\label{fig:engines}](paper_figure.png)
+
 ## Sensitivity analyses and validation
 
 `pyTOST` includes optional checks to assess whether an equivalence decision is stable to modeling choices:
