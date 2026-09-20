@@ -17,6 +17,9 @@ Engines
 - TemporalTOST: valid inference with serial correlation (e.g., time series).
 - SpatialTOST: Gaussian Matérn GLS (profile Gaussian ML) + likelihood-ratio CI.
 - SpatioTemporalTOST: spatiotemporal inference for balanced panels and IVW fallback for unbalanced panels.
+- HeteroskedasticTOST: robust inference under non-constant variance (HC3, or cluster-robust
+  wild bootstrap when clusters are supplied). Available as a primary engine and as a
+  sensitivity analysis.
 
 Sensitivity analyses
 --------------------

@@ -185,8 +185,24 @@ res = run_tost(
 )
 ```
 
-## Interpreting results
+### Heteroskedastic
 
+Use `engine="heteroskedastic"` when the variance of the paired differences is not
+constant across observations. Without `cluster`, it uses HC3 robust inference; with
+`cluster`, it uses a cluster-robust wild bootstrap (Rademacher multipliers), which is
+better behaved when the number of clusters is small.
+
+```python
+res = run_tost(
+    df,
+    y="diff",
+    margins=[0.5],
+    engine="heteroskedastic",
+    cluster="cluster_id",  # optional
+)
+```
+
+## Interpreting results
 For each margin `Δ`, pyTOST reports a confidence interval for the mean paired difference `μ`.
 
 - If the interval lies entirely inside `(-Δ, Δ)`, pyTOST declares **equivalence**.

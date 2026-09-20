@@ -114,8 +114,9 @@ def run_tost(
         Equivalence margins.
     alpha : float
         One-sided alpha for TOST CI-inclusion rule.
-    engine : {"iid","cluster","temporal","spatial","spatiotemporal"}
-        Primary engine to run.
+    engine : {"iid","cluster","temporal","spatial","spatiotemporal","heteroskedastic"}
+        Primary engine to run. ``"heteroskedastic"`` uses HC3 robust inference, or
+        cluster-robust wild bootstrap inference when ``cluster`` is supplied.
     cluster, time, x, ycoord : str or None
         Required depending on engine.
     spatial_config, spatiotemporal_config
@@ -169,8 +170,16 @@ def run_tost(
             config=(spatiotemporal_config or SpatioTemporalConfig()),
         ).fit(df, alpha, margins)
 
+    elif eng == "heteroskedastic":
+        primary = HeteroskedasticTOST(
+            y=y, cluster=cluster, seed=options.seed
+        ).fit(df, alpha=alpha, margins=margins)
+
     else:
-        raise ValueError(f"Unknown engine={engine!r}. Must be one of iid/cluster/temporal/spatial/spatiotemporal.")
+        raise ValueError(
+            f"Unknown engine={engine!r}. Must be one of "
+            "iid/cluster/temporal/spatial/spatiotemporal/heteroskedastic."
+        )
 
     out: TOSTResult = TOSTResult({"engine": eng, "primary": primary})
 
