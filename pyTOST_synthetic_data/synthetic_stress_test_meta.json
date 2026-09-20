@@ -1,0 +1,48 @@
+{
+  "generator_kwargs": {
+    "seed": 15211,
+    "n_space": 25,
+    "n_time": 98,
+    "domain": [
+      -2.0,
+      2.0,
+      -2.0,
+      2.0
+    ],
+    "length_scale": 1.3737154272754335,
+    "rho": 0.6097516299425723,
+    "spatial_sd": 0.7804901137352039,
+    "obs_sd": 0.30601044722342197,
+    "delta": 0.9510985306259435
+  },
+  "generation_seed": 15211,
+  "n_clusters_buildings": 9,
+  "n_space_locations": 25,
+  "n_time_steps": 98,
+  "n_observations": 2450,
+  "alpha": 0.05,
+  "margin_delta": 1.0,
+  "building_assignment": "Sort-Tile-Recursive spatial partition of the 25 locations into 9 buildings; constant within a location; relabeled by ascending centroid.",
+  "search_params": {
+    "n_space": 25,
+    "n_time": 98,
+    "n_clusters": 9,
+    "domain": [
+      -2.0,
+      2.0,
+      -2.0,
+      2.0
+    ],
+    "length_scale": 1.3737154272754335,
+    "rho": 0.6097516299425723,
+    "spatial_sd": 0.7804901137352039,
+    "obs_sd": 0.30601044722342197,
+    "delta": 0.9510985306259435
+  },
+  "python_version": "3.14.3",
+  "package_versions": {
+    "numpy": "2.5.1",
+    "scipy": "1.18.0",
+    "pandas": "3.0.3"
+  }
+}

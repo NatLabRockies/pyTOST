@@ -44,6 +44,7 @@ class WorkflowOptions:
     robust_location_B: int = 200
     robust_location_block_len: int = 5
     robust_location_stat: str = "median"
+    robust_location_trim: float = 0.2
 
     # For spatial/spatiotemporal bootstrap selection only:
     #   - True  -> use spatial block bootstrap (allows cross-cluster dependence)
@@ -301,6 +302,7 @@ def run_tost(
             B=options.robust_location_B,
             seed=options.seed,
             stat=options.robust_location_stat,
+            trim=options.robust_location_trim,
         ).fit(df, alpha=alpha, margins=margins)
         out["sensitivity"] = sens
 

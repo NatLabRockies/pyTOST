@@ -1,0 +1,28 @@
+{
+  "title": "Synthetic Dataset for Dependence-Aware Paired-Equivalence Testing",
+  "description": "A synthetic, fully reproducible balanced spatiotemporal panel (9 buildings, 25 spatial locations, 98 time steps; N=2,450 paired observations) accompanying a manuscript on dependence-aware paired-equivalence (TOST) inference. The dataset reproduces the key structural features exercised by the workflow: paired observations, spatial clustering of locations into buildings, temporal ordering, and a balanced spatiotemporal panel. It contains no proprietary or personal data. The archive includes the frozen dataset, a reproducibility record (generator parameters, seed, and package versions), the generation script, and an executable analysis demo. Author identity and deposit identifiers are withheld for double-blind review.",
+  "upload_type": "dataset",
+  "license": "cc-by-4.0",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Anonymous"
+    }
+  ],
+  "keywords": [
+    "equivalence testing",
+    "TOST",
+    "synthetic data",
+    "spatiotemporal statistics",
+    "spatial statistics",
+    "time series",
+    "reproducibility"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "TODO(author): companion software archive DOI",
+      "relation": "isSupplementTo",
+      "scheme": "doi"
+    }
+  ]
+}

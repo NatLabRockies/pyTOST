@@ -310,6 +310,28 @@ options = WorkflowOptions(
 
 Then pass `options=options` into `run_tost(...)`.
 
+### Choosing the robust location statistic
+
+The robust-location check defaults to the median, which is maximally resistant to
+outliers but discards most of the sample. Set `robust_location_stat="trimmed_mean"` to
+use a trimmed mean instead, and `robust_location_trim` to choose how much of *each*
+tail is removed:
+
+```python
+options = WorkflowOptions(
+    do_sensitivity=True,
+    robust_location_stat="trimmed_mean",
+    robust_location_trim=0.1,  # drop the lowest and highest 10%
+)
+```
+
+The trim fraction interpolates between the two familiar estimators: `0.0` reproduces the
+sample mean, and values approaching `0.5` approach the median. A light trim (0.05–0.10)
+is a reasonable default when you want to discount a few contaminated observations
+without giving up the efficiency of the mean. Valid values satisfy
+`0.0 <= trim < 0.5`; anything else raises `ValueError`, as does an unrecognized
+`robust_location_stat`.
+
 ### Controlling the temporal HAC lag
 
 The temporal engine uses a Newey–West HAC variance estimator with a truncation lag of

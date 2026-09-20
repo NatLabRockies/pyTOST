@@ -37,6 +37,11 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
   (cluster engine on clustered data) against a nominal 0.900. The same simulation
   records the motivating failure quantitatively: applying the IID engine to clustered
   data yields only 0.613 coverage.
+- `RobustLocationTOST` accepts `stat="trimmed_mean"` with a configurable `trim`
+  fraction (removed from each tail), surfaced through
+  `WorkflowOptions.robust_location_trim`. The trim fraction interpolates between the
+  sample mean (`trim=0.0`) and the median, so the robust check is no longer limited to
+  the median or a hard-coded 20% trim.
 - Figure in `paper.md` comparing engine confidence intervals on a shared synthetic
   dataset, reproducible via `scripts/make_paper_figure.py`.
 - This changelog.
@@ -47,6 +52,10 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
   holder in `LICENSE`.
 
 ### Fixed
+
+- `RobustLocationTOST` silently fell back to the sample mean when given an unrecognized
+  `stat`, so a typo such as `"mediam"` returned a mean-based result labelled as robust.
+  Unknown statistics and out-of-range trim fractions now raise `ValueError`.
 
 - The spatial, spatiotemporal, and building-aware engines now raise an informative
   `ValueError` naming the offending column and rows when coordinate columns contain
