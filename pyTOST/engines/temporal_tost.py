@@ -14,6 +14,8 @@ References
 - Box & Jenkins (1970) Time Series Analysis.
 """
 from __future__ import annotations
+
+import warnings
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -100,16 +102,51 @@ class TemporalTOST:
             return auto_hac_lags(n), "auto"
         return int(self.hac_lags), "fixed"
 
-    def _hac(self, df, alpha):
-        df2 = df.sort_values(self.time)
+    def _ordered(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Order observations for sequential (HAC/AR) estimation.
+
+        Rows are ordered by time. Rows sharing a time value are further ordered by
+        response value, which makes the resulting sequence independent of the order in
+        which the caller supplied the rows: two rows tied on both time and response are
+        interchangeable and leave the residual sequence unchanged. Without this,
+        identical data in a different row order produced different autocovariances and
+        therefore a different confidence interval (see docs/review_register.md, RR-001).
+        """
+        return df.sort_values([self.time, self.y], kind="mergesort")
+
+    def _check_times(self, df2: pd.DataFrame) -> None:
+        dup = df2[self.time].duplicated()
+        if not dup.any():
+            return
+
+        tied = df2.loc[dup, self.time].unique().tolist()
+        shown = ", ".join(repr(t) for t in tied[:5])
+        if len(tied) > 5:
+            shown += f", ... ({len(tied)} tied time values in total)"
+
         if self.require_unique_times:
-            dup = df2[self.time].duplicated()
-            if dup.any():
-                raise ValueError(
-                    f"TemporalTOST: duplicate time values detected (require_unique_times=True). "
-                    f"Duplicated times: {df2.loc[dup, self.time].unique().tolist()}.  "
-                    "Aggregate to one observation per time point before fitting."
-                )
+            raise ValueError(
+                "TemporalTOST: duplicate time values detected "
+                f"(require_unique_times=True). Duplicated times: {shown}. "
+                "Aggregate to one observation per time point before fitting."
+            )
+
+        warnings.warn(
+            "TemporalTOST: duplicate time values detected "
+            f"({shown}). The Newey-West HAC estimator treats the data as a single "
+            "sequence indexed by time, so observations sharing a time value are "
+            "treated as if they were consecutive time points and the estimated "
+            "autocorrelation will not reflect the data-generating process. Aggregate "
+            "to one observation per time point, or use the cluster or spatiotemporal "
+            "engine, which model cross-sectional replication explicitly. Pass "
+            "require_unique_times=True to make this an error.",
+            UserWarning,
+            stacklevel=4,
+        )
+
+    def _hac(self, df, alpha):
+        df2 = self._ordered(df)
+        self._check_times(df2)
         X = np.ones((len(df2),1))
         lags, how = self._resolve_lags(len(df2))
         fit = sm.OLS(df2[self.y].to_numpy(float), X).fit(cov_type="HAC", cov_kwds={"maxlags": lags})
@@ -120,7 +157,8 @@ class TemporalTOST:
         return mu, (mu - zcrit*se, mu + zcrit*se), np.inf, label
 
     def _glsar1(self, df, alpha):
-        df2 = df.sort_values(self.time)
+        df2 = self._ordered(df)
+        self._check_times(df2)
         X = np.ones((len(df2),1))
         model = sm.GLSAR(df2[self.y].to_numpy(float), X, rho=1)
         res = model.iterative_fit(maxiter=10)

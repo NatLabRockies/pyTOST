@@ -307,11 +307,16 @@ class TestTemporalLagAndTiedRows:
             tost.fit(tied_df, alpha=0.05, margins=[0.5])
 
     def test_temporal_accepts_tied_rows_by_default(self, monthly_df):
-        """By default (require_unique_times=False), TemporalTOST accepts tied time rows."""
+        """By default (require_unique_times=False), TemporalTOST accepts tied time rows.
+
+        It warns while doing so: HAC inference treats the data as one sequence indexed
+        by time, which tied rows violate (docs/review_register.md, RR-001).
+        """
         tied_df = pd.concat([monthly_df, monthly_df.iloc[[0]]], ignore_index=True)
         tost = TemporalTOST(y="diff", time="month", hac_lags=2, require_unique_times=False)
         # Should not raise; treats multiple rows at same time as repeated observations
-        result = tost.fit(tied_df, alpha=0.05, margins=[0.5])
+        with pytest.warns(UserWarning, match="duplicate time"):
+            result = tost.fit(tied_df, alpha=0.05, margins=[0.5])
         assert isinstance(result, pd.DataFrame)
 
 

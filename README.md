@@ -349,6 +349,12 @@ options = WorkflowOptions(max_lag=4)        # reproduce pyTOST < 0.17.0
 > size, which under-smoothed long series and over-smoothed short ones. Pass
 > `max_lag=4` explicitly to reproduce results from an earlier version.
 
+The temporal engine expects **one observation per time point**. If several rows share a
+time value, HAC inference treats them as consecutive time points, which will not reflect
+the real autocorrelation; the engine warns in that case. Aggregate within time points
+first, or use the `cluster` or `spatiotemporal` engine, which model cross-sectional
+replication explicitly.
+
 Longer lags admit more autocorrelation into the variance estimate and generally widen
 the interval. `"auto"` is recommended when the series length varies between analyses;
 the default of `4` is retained so results from earlier versions stay reproducible.

@@ -30,10 +30,14 @@ BASELINE = {
         "equivalent": True,
         "df": 7.0,
     },
+    # A single series with one observation per time point. A multi-series panel was
+    # used here until 2026-09-20; because several rows then shared a time value, the
+    # HAC result depended on the caller's row order and the pinned numbers were not
+    # reproducible across platforms (docs/review_register.md, RR-001).
     "temporal": {
-        "mu_hat": 0.14365583946437474,
-        "ci_low": 0.10239980673992613,
-        "ci_high": 0.18491187218882335,
+        "mu_hat": 0.13331724077602888,
+        "ci_low": 0.09547693392315121,
+        "ci_high": 0.17115754762890656,
         "equivalent": True,
         "df": math.inf,
     },
@@ -100,8 +104,8 @@ def test_deterministic_engine_regression_baseline():
 
     # Temporal
     temporal_long, _ = generate_temporal_ar1(
-        n_time=40,
-        series_per_arm=3,
+        n_time=120,
+        series_per_arm=1,
         rho=0.6,
         process_sd=0.8,
         obs_sd=0.2,
@@ -111,6 +115,10 @@ def test_deterministic_engine_regression_baseline():
     temporal_df = long_to_diff(
         temporal_long, index_cols=["sample_id", "series_id", "t"]
     ).rename(columns={"t": "time"})
+    assert temporal_df["time"].is_unique, (
+        "the temporal baseline must be a single series; tied time values make the "
+        "pinned HAC numbers depend on row order (RR-001)"
+    )
     temporal = run_tost(
         temporal_df,
         y="diff",

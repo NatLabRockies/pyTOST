@@ -60,6 +60,14 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
 
 ### Fixed
 
+- The temporal engine returned different confidence intervals for the same data
+  supplied in a different row order. Rows sharing a time value were ordered
+  arbitrarily, and the Newey--West autocovariances depend on that order, so results
+  were not reproducible across platforms. Observations are now ordered deterministically
+  and the engine warns when time values are tied, because HAC inference assumes a single
+  sequence indexed by time. Pass `require_unique_times=True` to make tied times an
+  error. See `docs/review_register.md` (RR-001).
+
 - `RobustLocationTOST` silently fell back to the sample mean when given an unrecognized
   `stat`, so a typo such as `"mediam"` returned a mean-based result labelled as robust.
   Unknown statistics and out-of-range trim fractions now raise `ValueError`.
