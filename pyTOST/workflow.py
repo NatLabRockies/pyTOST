@@ -56,7 +56,7 @@ class WorkflowOptions:
     spatial_block_size: float = 1.0
 
     # Newey–West truncation lag for the temporal engine.
-    #   - None   -> use the engine default (4)
+    #   - None   -> use the engine default ("auto")
     #   - int    -> fix the truncation lag
     #   - "auto" -> select from the sample size via auto_hac_lags()
     max_lag: Optional[Union[int, str]] = None

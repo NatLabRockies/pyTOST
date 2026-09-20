@@ -81,7 +81,7 @@ In realistic validation settings, however, equivalence decisions are often drive
 
 - **Cluster engine.** Intercept-only OLS with cluster-robust (sandwich) variance and conservative $df = G-1$ degrees of freedom, where $G$ is the number of clusters [@CameronMiller2015].
 
-- **Temporal engine.** Intercept-only OLS with Newey--West HAC variance; the CI uses a standard normal critical value, consistent with the asymptotic justification of HAC estimators [@NeweyWest1987]. An AR(1) GLS path is available by calling `TemporalTOST` directly.
+- **Temporal engine.** Intercept-only OLS with Newey--West HAC variance, whose truncation lag defaults to the sample-size-based plug-in rule $\lfloor 4(n/100)^{2/9}\rfloor$ and can be fixed by the user; the CI uses a standard normal critical value, consistent with the asymptotic justification of HAC estimators [@NeweyWest1987]. An AR(1) GLS path is available by calling `TemporalTOST` directly.
 
 - **Spatial engine.** Gaussian process with Matérn covariance plus nugget [@Stein1999; @GuttorpGneiting2006]. Covariance parameters are estimated by profile maximum likelihood with smoothness $\nu$ selected over a candidate grid; the mean is estimated by GLS and uncertainty is quantified via a profile likelihood-ratio CI [@Pawitan2001].
 

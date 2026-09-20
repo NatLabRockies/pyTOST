@@ -334,15 +334,20 @@ without giving up the efficiency of the mean. Valid values satisfy
 
 ### Controlling the temporal HAC lag
 
-The temporal engine uses a Newey–West HAC variance estimator with a truncation lag of
-`4` by default. Use `max_lag` to override it — either with a fixed integer, or with
-`"auto"` to select the lag from the sample size via the Newey–West (1994) plug-in rule
-`floor(4 * (n / 100) ** (2 / 9))`:
+The temporal engine uses a Newey–West HAC variance estimator. By default the truncation
+lag is selected from the sample size via the Newey–West (1994) plug-in rule
+`floor(4 * (n / 100) ** (2 / 9))`, so it grows with the length of the series. Use
+`max_lag` to override it:
 
 ```python
-options = WorkflowOptions(max_lag="auto")   # data-driven lag
 options = WorkflowOptions(max_lag=12)       # fixed lag
+options = WorkflowOptions(max_lag="auto")   # data-driven lag (the default)
+options = WorkflowOptions(max_lag=4)        # reproduce pyTOST < 0.17.0
 ```
+
+> **Changed in 0.17.0.** Earlier versions used a fixed lag of `4` regardless of sample
+> size, which under-smoothed long series and over-smoothed short ones. Pass
+> `max_lag=4` explicitly to reproduce results from an earlier version.
 
 Longer lags admit more autocorrelation into the variance estimate and generally widen
 the interval. `"auto"` is recommended when the series length varies between analyses;

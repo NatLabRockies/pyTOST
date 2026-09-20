@@ -66,7 +66,7 @@ class TemporalTOST:
         self,
         y: str,
         time: str,
-        hac_lags: LagSpec = 4,
+        hac_lags: LagSpec = "auto",
         require_unique_times: bool = False,
     ):
         """
@@ -76,11 +76,13 @@ class TemporalTOST:
             Response column (paired difference).
         time : str
             Time-ordering column.
-        hac_lags : int or "auto", default 4
-            Newey--West truncation lag. An integer fixes the lag. ``"auto"`` selects it
-            from the sample size using :func:`auto_hac_lags`, which is preferable when
-            the series length is not known in advance. The default is kept at 4 so that
-            results from earlier versions remain reproducible.
+        hac_lags : int or "auto", default "auto"
+            Newey--West truncation lag. ``"auto"`` selects the lag from the sample size
+            using :func:`auto_hac_lags`, the Newey--West (1994) plug-in rule
+            ``floor(4 * (n / 100) ** (2 / 9))``, so the lag grows with the series length.
+            An integer fixes the lag instead; pass ``hac_lags=4`` to reproduce results
+            from pyTOST versions before 0.17.0, which used a fixed lag of 4 regardless
+            of sample size.
         require_unique_times : bool
             When True, raise ValueError if any time value appears more than once.
         """

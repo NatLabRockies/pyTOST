@@ -35,9 +35,27 @@ class TestAutoLagRule:
 
 
 class TestEngineLagSelection:
-    def test_default_lag_is_unchanged(self):
-        """The documented default must stay at 4 so existing results are stable."""
-        assert TemporalTOST("diff", "time").hac_lags == 4
+    def test_default_lag_is_selected_automatically(self):
+        """The default adapts the truncation lag to the series length."""
+        assert TemporalTOST("diff", "time").hac_lags == "auto"
+
+    def test_default_matches_an_explicit_auto_request(self, series_df):
+        default = TemporalTOST("diff", "time").fit(series_df, alpha=0.05, margins=[0.5])
+        explicit = TemporalTOST("diff", "time", hac_lags="auto").fit(
+            series_df, alpha=0.05, margins=[0.5]
+        )
+
+        pd.testing.assert_frame_equal(default, explicit)
+
+    def test_a_fixed_lag_of_four_reproduces_the_pre_0_17_default(self, series_df):
+        """Users can still pin the historical behaviour explicitly."""
+        pinned = TemporalTOST("diff", "time", hac_lags=4).fit(
+            series_df, alpha=0.05, margins=[0.5]
+        )
+        default = TemporalTOST("diff", "time").fit(series_df, alpha=0.05, margins=[0.5])
+
+        assert "lags=4" in pinned.iloc[0]["method"]
+        assert pinned.iloc[0]["ci_low"] != default.iloc[0]["ci_low"]
 
     def test_auto_resolves_from_the_data_length(self, series_df):
         tost = TemporalTOST("diff", "time", hac_lags="auto")
@@ -94,7 +112,9 @@ class TestWorkflowOption:
 
     def test_default_workflow_preserves_the_engine_default(self, series_df):
         res = self._run(series_df)
-        assert "lags=4" in res["primary"].iloc[0]["method"]
+
+        expected = auto_hac_lags(len(series_df))
+        assert f"lags={expected}, auto" in res["primary"].iloc[0]["method"]
 
     def test_max_lag_overrides_the_engine_default(self, series_df):
         res = self._run(series_df, max_lag=10)

@@ -273,10 +273,14 @@ class TestEqualWeightedPointEstimator:
 # ---------------------------------------------------------------------------
 
 class TestTemporalLagAndTiedRows:
-    def test_temporal_default_hac_lags_is_four(self):
-        """TemporalTOST defaults to 4 HAC lags."""
+    def test_temporal_default_hac_lags_is_auto(self):
+        """TemporalTOST selects the HAC lag from the sample size by default.
+
+        Changed in 0.17.0: the default was previously a fixed lag of 4, which
+        under-smoothed long series and over-smoothed short ones.
+        """
         t = TemporalTOST(y="diff", time="month")
-        assert t.hac_lags == 4
+        assert t.hac_lags == "auto"
 
     def test_temporal_hac_lags_configurable(self, monthly_df):
         """TemporalTOST with hac_lags=2 sets method label to report 2 lags (monthly case)."""

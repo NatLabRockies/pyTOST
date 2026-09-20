@@ -50,6 +50,11 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
 
 ### Changed
 
+- **Breaking:** the temporal engine now selects its Newey--West truncation lag from the
+  sample size by default (`hac_lags="auto"`) instead of using a fixed lag of `4`. The
+  fixed lag under-smoothed long series and over-smoothed short ones. Pass
+  `max_lag=4` (or `TemporalTOST(..., hac_lags=4)`) to reproduce earlier results.
+
 - The paper affiliation now names the operating legal entity, matching the copyright
   holder in `LICENSE`.
 
