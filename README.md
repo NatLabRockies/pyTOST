@@ -202,6 +202,13 @@ res = run_tost(
 )
 ```
 
+## Worked example
+
+For a complete, end-to-end analysis — choosing an engine, reading the summary, and
+interpreting disagreement between sensitivity analyses — see the
+[SAV method equivalence worked example](docs/sav_worked_example.md). It shows a case
+where ignoring spatial and temporal dependence reverses the equivalence decision.
+
 ## Interpreting results
 For each margin `Δ`, pyTOST reports a confidence interval for the mean paired difference `μ`.
 
