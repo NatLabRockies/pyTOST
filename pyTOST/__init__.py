@@ -49,6 +49,9 @@ from .engines.building_aware import BuildingAwareSpatioTemporalTOST, BuildingAwa
 from .engines.heteroskedastic_tost import HeteroskedasticTOST
 from .engines.robust_location_tost import RobustLocationTOST
 
+# Visualization
+from .visualize import plot_ci
+
 __all__ = [
     # workflow
     "run_tost",
@@ -67,4 +70,6 @@ __all__ = [
     # sensitivity
     "HeteroskedasticTOST",
     "RobustLocationTOST",
+    # visualization
+    "plot_ci",
 ]

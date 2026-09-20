@@ -260,6 +260,23 @@ Delta  mu_hat  ci_low  ci_high  Decision
 Sensitivity analyses and the bootstrap sanity check are included in the report when
 they were enabled. Use `summary(precision=...)` to control the number of decimals.
 
+### Plotting the decision
+
+`plot_ci()` renders the same decision as a report-ready matplotlib figure. Each engine
+becomes a horizontal CI bar; dashed lines mark `-Δ` and `+Δ`, and bars are colored by
+the equivalence decision.
+
+```python
+from pyTOST import plot_ci
+
+fig, ax = plot_ci(res, margin=0.5)
+fig.savefig("equivalence.png", dpi=200, bbox_inches="tight")
+```
+
+`plot_ci()` accepts either a `run_tost(...)` result — plotting the primary engine
+alongside any sensitivity analyses — or a plain `{label: DataFrame}` mapping to
+compare engines you ran yourself. Pass `ax=` to draw into an existing figure.
+
 ## Sensitivity analyses and validation
 
 The workflow can optionally include:
