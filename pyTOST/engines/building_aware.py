@@ -30,6 +30,7 @@ from scipy import linalg, optimize, stats
 
 from .spatial_tost import _matern_cov, _pairwise_dists
 from .spatiotemporal_tost import _ar1_corr
+from ..validation import require_finite_columns
 
 
 @dataclass
@@ -95,6 +96,10 @@ class BuildingAwareSpatioTemporalTOST:
         for col in (self.y, self.cluster, self.time, self.x, self.ycoord):
             if col not in df.columns:
                 raise ValueError(f"BuildingAwareSpatioTemporalTOST requires column {col!r}.")
+
+        require_finite_columns(
+            df, (self.x, self.ycoord), engine="BuildingAwareSpatioTemporalTOST"
+        )
         blocks = self._blocks(df)
         yall = df[self.y].to_numpy(float)
         N = len(yall)

@@ -63,6 +63,8 @@ from scipy import optimize, linalg, special, stats
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 
+from ..validation import require_finite_columns
+
 # Optional: Moran's I (PySAL)
 try:
     from libpysal.weights import KNN
@@ -1445,6 +1447,8 @@ class SpatialTOST:
                     f"SpatialTOST requires column {col!r}. "
                     f"Available columns: {list(df.columns)}"
                 )
+
+        require_finite_columns(df, (self.x, self.ycoord), engine="SpatialTOST")
 
         dfp = df.rename(
             columns={

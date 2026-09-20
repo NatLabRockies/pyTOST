@@ -48,6 +48,7 @@ from scipy import linalg, optimize, stats
 
 from .spatial_tost import _matern_cov  # correlation up to sigma2; we use sigma2 separately
 from .spatial_tost import fit_matern_profile_ml  # lr CI used only for per-time θ selection
+from ..validation import require_finite_columns
 
 
 @dataclass(frozen=True)
@@ -227,6 +228,8 @@ class SpatioTemporalTOST:
                     f"SpatioTemporalTOST requires column {col!r}. "
                     f"Available columns: {list(df.columns)}"
                 )
+
+        require_finite_columns(df, (self.x, self.ycoord), engine="SpatioTemporalTOST")
 
         # Attempt joint separable ML fit if the panel is balanced
         joint = self._try_joint_separable_ml(df=df, alpha=alpha, margins=margins)
