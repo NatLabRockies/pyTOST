@@ -1,5 +1,7 @@
 # pyTOST
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22858610.svg)](https://doi.org/10.5281/zenodo.22858610)
+
 pyTOST is a Python package for **dependence-aware equivalence testing with validation**. It applies the **two one-sided tests (TOST)** framework to paired differences when observations may be **IID**, **clustered**, **temporal**, **spatial**, or **spatiotemporal**.
 
 Across all engines, pyTOST targets the same estimand: the **mean paired difference**. For each equivalence margin `Δ`, the package estimates the mean difference `μ̂`, constructs a confidence interval for `μ`, and declares **equivalence** when the interval lies entirely inside `(-Δ, Δ)`.
@@ -481,4 +483,22 @@ Release-by-release changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Citation
 
-If you use pyTOST in research, please cite the accompanying JOSS paper once available.
+Every pyTOST release is archived on Zenodo. Cite the version you actually used, or the
+concept DOI below, which always resolves to the most recent release:
+
+- All versions (concept DOI): [10.5281/zenodo.22858610](https://doi.org/10.5281/zenodo.22858610)
+- v0.17.0: [10.5281/zenodo.22858611](https://doi.org/10.5281/zenodo.22858611)
+
+```bibtex
+@software{pyTOST,
+  author  = {Hettinger, Dylan},
+  title   = {pyTOST: Dependence-aware equivalence testing with validation in Python},
+  year    = {2026},
+  version = {0.17.0},
+  doi     = {10.5281/zenodo.22858610},
+  url     = {https://github.com/NatLabRockies/pyTOST}
+}
+```
+
+A JOSS paper describing the package is in preparation; this section will be updated with
+its citation once it is published.

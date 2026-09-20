@@ -14,6 +14,12 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
 
 ## [Unreleased]
 
+### Added
+
+- Zenodo archive DOI for the v0.17.0 release, referenced from the README and
+  `.zenodo.json`. The concept DOI `10.5281/zenodo.22858610` always resolves to the most
+  recent release.
+
 ## [0.17.0] - 2026-09-20
 
 ### Added

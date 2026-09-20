@@ -29,6 +29,11 @@
       "identifier": "https://pypi.org/project/pyTOST/",
       "relation": "isIdenticalTo",
       "scheme": "url"
+    },
+    {
+      "identifier": "10.5281/zenodo.22858610",
+      "relation": "isVersionOf",
+      "scheme": "doi"
     }
   ],
   "access_right": "open"

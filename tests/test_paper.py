@@ -114,3 +114,28 @@ class TestMetadataAgreement:
         metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
         assert metadata["project"]["name"] in paper
+
+
+class TestArchiveDOI:
+    """JOSS requires a citable archive of the released software."""
+
+    CONCEPT_DOI = "10.5281/zenodo.22858610"
+
+    def test_readme_cites_the_concept_doi(self):
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+        assert self.CONCEPT_DOI in readme
+
+    def test_zenodo_metadata_records_the_concept_doi(self):
+        import json
+
+        zenodo = json.loads((REPO_ROOT / ".zenodo.json").read_text(encoding="utf-8"))
+        identifiers = {r["identifier"] for r in zenodo.get("related_identifiers", [])}
+
+        assert self.CONCEPT_DOI in identifiers
+
+    def test_readme_cites_the_released_version(self):
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+        assert metadata["project"]["version"] in readme
