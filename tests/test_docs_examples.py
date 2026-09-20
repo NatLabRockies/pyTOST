@@ -70,3 +70,38 @@ def test_readme_links_to_the_worked_example():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "docs/sav_worked_example.md" in readme
+
+
+class TestDevelopmentStatus:
+    """The README must present pyTOST as a released package, not a forthcoming one.
+
+    JOSS requires that the software already be usable and documented at submission
+    time, so pre-release phrasing in the README is a submission blocker.
+    """
+
+    @staticmethod
+    def _status_section() -> str:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        _, _, after = readme.partition("## Development status")
+        assert after, "README is missing a '## Development status' section"
+        section, _, _ = after.partition("\n## ")
+        return section
+
+    @pytest.mark.parametrize(
+        "phrase",
+        [
+            "being prepared",
+            "not yet released",
+            "pre-release",
+            "coming soon",
+            "work in progress",
+        ],
+    )
+    def test_status_avoids_pre_release_phrasing(self, phrase):
+        assert phrase not in self._status_section().lower()
+
+    def test_status_states_the_package_is_stable(self):
+        assert "stable" in self._status_section().lower()
+
+    def test_status_points_readers_at_the_changelog(self):
+        assert "CHANGELOG.md" in self._status_section()

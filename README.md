@@ -445,14 +445,26 @@ See `CONTRIBUTING.md` for the recommended development workflow and local test co
 
 ## Development status
 
-pyTOST is being prepared for open-source release and JOSS submission as a library-first package for dependence-aware equivalence testing with validation.
+pyTOST is stable and suitable for research use. The public API — `run_tost`,
+`WorkflowOptions`, `TOSTResult`, `plot_ci`, and the individual engine classes — is
+settled, and breaking changes will be announced in [CHANGELOG.md](CHANGELOG.md) ahead of
+any release that makes them.
 
-The near-term priorities are:
+What that rests on:
 
-- packaging and install metadata
-- automated tests across all engines
-- cleanup of the canonical demo notebook
-- harmonization of documentation and JOSS paper materials
+- six inference engines (`iid`, `cluster`, `temporal`, `spatial`, `spatiotemporal`,
+  `heteroskedastic`), each covered by automated tests
+- confidence-interval coverage validated by Monte Carlo simulation and, for the IID
+  engine, checked against the closed-form Student-t interval
+- continuous integration runs the full test suite on every push to `main` and every
+  pull request
+- a reproducible environment specification (`pixi.toml`, `pixi.lock`) and a worked
+  example in [`docs/sav_worked_example.md`](docs/sav_worked_example.md)
+
+Current development focuses on broadening the validation suite, documenting additional
+applied examples, and responding to user-reported issues. Bug reports and feature
+requests are welcome through the GitHub issue tracker; see `CONTRIBUTING.md` for the
+development workflow.
 
 Release-by-release changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
