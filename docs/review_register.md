@@ -78,3 +78,63 @@ of 120 time points, and asserts that its time values are unique.
 ### Merge/release impact
 
 Cleared for the v0.17.0 tag once CI is green on `main`.
+
+## RR-002 — JOSS paper overstated validation scope and engine coverage
+
+- **Severity:** medium
+- **Category:** accuracy of claims / publication readiness
+- **Status:** resolved in `paper.md`
+- **Affected files:** `paper.md`, `scripts/make_paper_figure.py`, `tests/test_paper.py`
+
+### Findings
+
+1. **Figure caption claimed completeness it did not have.** The caption described
+   "all five `pyTOST` engines" while the package exposes six. The heteroskedastic
+   engine is not plotted, because the figure's dataset has constant variance. The
+   same stale claim appeared twice in `scripts/make_paper_figure.py` docstrings.
+
+2. **Coverage results were reported without denominators.** The paper quoted 0.892,
+   0.907, and 0.613 against a nominal 0.900 with no replicate counts, no simulation
+   design, and no Monte Carlo error, so a reader could not judge whether the
+   deviations were meaningful. They are 600 and 400 replicates, giving Monte Carlo
+   standard errors of 0.012 and 0.015.
+
+3. **Validation scope was not disclosed.** Coverage is simulated for the IID and
+   cluster engines only. The paper did not say so, leaving the impression that all
+   engines carried the same empirical backing. Tracked in `docs/scope_backlog.md`
+   as SB-002.
+
+4. **Evidence was in the wrong section.** The coverage results sat in
+   "State of the field", a section about other people's software, burying the
+   paper's strongest empirical support for its own central claim.
+
+5. **Engine configuration was described inaccurately.** The text said all five
+   plotted engines are "run in equal-weighted mode"; only the spatial and
+   spatiotemporal engines accept that option.
+
+6. **Date format violated the JOSS specification,** which requires `%e %B %Y`.
+   `tests/test_paper.py::test_date_is_iso_formatted` actively enforced the wrong
+   format and had to be rewritten.
+
+7. **API material appeared in the paper.** JOSS directs installation and API usage
+   to the software documentation; the `pip install` block and `run_tost(...)`
+   example were removed.
+
+### Resolution
+
+All seven are fixed. Coverage evidence moved to a new "Validating the intervals"
+subsection under Software design, with replicate counts, simulation design, Monte
+Carlo error, and an explicit statement that the temporal, spatial, spatiotemporal,
+and heteroskedastic engines have correctness tests but no coverage simulation. The
+figure's numbers were re-verified by running `fit_all_engines` directly: n = 192,
+width ratios 2.52 and 6.23 versus IID, all five engines returning mu_hat = 0.26, and
+equivalence declared by the IID, temporal, and spatial engines only. The paper now
+also discloses that the temporal engine is applied to a panel with tied time points
+(see RR-001).
+
+`tests/test_paper.py` was corrected to assert the JOSS date format and extended to
+guard all eight required JOSS sections.
+
+### Merge/release impact
+
+Paper-only; no library behaviour changed. Does not block a release.

@@ -1,10 +1,11 @@
 """Generate the JOSS paper figure comparing engine CIs on one synthetic dataset.
 
-The figure shows why dependence-aware inference matters: all five engines estimate the
-same mean paired difference from identical data, but the IID engine — which ignores the
-spatial and temporal dependence that is genuinely present — reports a materially
-narrower confidence interval, and therefore declares equivalence at a margin where the
-dependence-aware engines do not.
+The figure shows why dependence-aware inference matters. Five of the six engines are
+plotted; the heteroskedastic engine is omitted because this dataset has constant
+variance. All five estimate the same mean paired difference from identical data, but the
+IID engine, which ignores the spatial and temporal dependence genuinely present, reports
+a materially narrower confidence interval and so declares equivalence at a margin where
+the dependence-aware engines do not.
 
 Run with::
 
@@ -78,10 +79,11 @@ def build_paired_differences() -> pd.DataFrame:
 def fit_all_engines(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Fit every engine to the same data at a single equivalence margin.
 
-    The spatial and spatiotemporal engines are run in ``equal_weighted`` mode so that
-    all five engines target the same estimand — the mean paired difference — and the
-    comparison isolates the effect of the dependence assumption on the CI width rather
-    than confounding it with a change of estimand from GLS reweighting.
+    Only the spatial and spatiotemporal engines accept ``equal_weighted`` mode; running
+    them that way makes all five plotted engines target the same estimand, the mean
+    paired difference, so the comparison isolates the effect of the dependence
+    assumption on CI width rather than confounding it with a change of estimand from
+    GLS reweighting.
     """
     margins = [MARGIN]
 

@@ -52,11 +52,16 @@ class TestFrontMatter:
     def test_required_field_is_present(self, field, front_matter):
         assert f"{field}:" in front_matter
 
-    def test_date_is_iso_formatted(self, front_matter):
-        date = re.search(r"^date:\s*(\S+)", front_matter, re.MULTILINE)
+    def test_date_uses_the_joss_day_month_year_format(self, front_matter):
+        """JOSS specifies a ``%e %B %Y`` date, e.g. ``9 October 2024``."""
+        date = re.search(r"^date:\s*(.+?)\s*$", front_matter, re.MULTILINE)
 
         assert date, "paper.md front matter has no date"
-        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", date.group(1))
+        assert re.fullmatch(
+            r"\d{1,2} (January|February|March|April|May|June|July|August"
+            r"|September|October|November|December) \d{4}",
+            date.group(1),
+        ), f"date {date.group(1)!r} is not in JOSS '%e %B %Y' format"
 
     def test_bibliography_file_exists(self, front_matter):
         name = re.search(r"^bibliography:\s*(\S+)", front_matter, re.MULTILINE)
@@ -67,7 +72,16 @@ class TestFrontMatter:
 class TestRequiredSections:
     @pytest.mark.parametrize(
         "heading",
-        ["# Summary", "# Statement of need", "# State of the field", "# References"],
+        [
+            "# Summary",
+            "# Statement of need",
+            "# State of the field",
+            "# Software design",
+            "# Research impact statement",
+            "# AI usage disclosure",
+            "# Acknowledgements",
+            "# References",
+        ],
     )
     def test_section_is_present(self, heading, paper):
         assert heading in paper
