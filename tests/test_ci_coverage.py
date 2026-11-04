@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 from scipy import stats
 
-from pyTOST import ClusterTOST, IIDTOST
+from pyTOST import ClusterTOST, HeteroskedasticTOST, IIDTOST, TemporalTOST
 
 ALPHA = 0.05
 NOMINAL = 1 - 2 * ALPHA  # the CI-in-TOST rule uses a (1 - 2*alpha) interval
@@ -173,3 +173,117 @@ class TestClusterCoverage:
         iid = IIDTOST("diff").fit(df, ALPHA, MARGINS).iloc[0]
 
         assert (cl["ci_high"] - cl["ci_low"]) > (iid["ci_high"] - iid["ci_low"])
+
+
+def _ar1_sample(rng, n, rho, true_mu, sd=1.0):
+    """Stationary AR(1) paired differences with a known mean."""
+    innov = rng.normal(0.0, sd, size=n)
+    values = np.empty(n)
+    values[0] = innov[0] / np.sqrt(1.0 - rho**2) if rho else innov[0]
+    for i in range(1, n):
+        values[i] = rho * values[i - 1] + innov[i]
+    return pd.DataFrame({"diff": true_mu + values, "t": np.arange(n)})
+
+
+@pytest.mark.slow
+class TestTemporalCoverage:
+    """Coverage of the Newey-West HAC engine under serial correlation.
+
+    These tests record measured behaviour, including a known shortfall documented in
+    ``docs/review_register.md`` as RR-003. They deliberately do not assert that the
+    temporal engine attains its nominal level under strong serial correlation,
+    because it does not.
+    """
+
+    REPLICATES = 400
+    TRUE_MU = 0.25
+
+    def _simulate(self, n, rho, seed):
+        rng = np.random.default_rng(seed)
+        hac_hits, iid_hits = [], []
+        for _ in range(self.REPLICATES):
+            df = _ar1_sample(rng, n, rho, self.TRUE_MU)
+            hac = TemporalTOST("diff", "t").fit(df, ALPHA, MARGINS).iloc[0]
+            hac_hits.append(hac["ci_low"] <= self.TRUE_MU <= hac["ci_high"])
+            iid = IIDTOST("diff").fit(df, ALPHA, MARGINS).iloc[0]
+            iid_hits.append(iid["ci_low"] <= self.TRUE_MU <= iid["ci_high"])
+        return _coverage(hac_hits), _coverage(iid_hits)
+
+    def test_temporal_engine_is_near_nominal_on_independent_data(self):
+        hac_coverage, _ = self._simulate(n=400, rho=0.0, seed=777)
+
+        tol = _binomial_tolerance(NOMINAL, self.REPLICATES)
+        assert hac_coverage == pytest.approx(NOMINAL, abs=tol), (
+            f"HAC coverage {hac_coverage:.3f} outside {NOMINAL:.2f} +/- {tol:.3f} at rho=0"
+        )
+
+    def test_temporal_engine_substantially_improves_on_iid_under_ar1(self):
+        """The package's core claim: modelling the dependence recovers lost coverage."""
+        hac_coverage, iid_coverage = self._simulate(n=120, rho=0.7, seed=777)
+
+        assert iid_coverage < 0.60, (
+            f"expected severe IID undercoverage under AR(1), got {iid_coverage:.3f}"
+        )
+        assert hac_coverage > iid_coverage + 0.15, (
+            f"HAC {hac_coverage:.3f} should markedly beat IID {iid_coverage:.3f}"
+        )
+
+    def test_temporal_engine_still_undercovers_under_strong_ar1(self):
+        """Characterisation of a known limitation (RR-003), not an endorsement.
+
+        Newey-West variance is biased downward in finite samples and the engine pairs
+        it with a standard-normal critical value, so a nominally 90% interval covers
+        roughly 72% at rho = 0.7, n = 120. Sweeping the truncation lag does not repair
+        this. If this test begins to fail because coverage improved, the engine's
+        inference was changed and RR-003 plus the paper's validation section must be
+        updated to match.
+        """
+        hac_coverage, _ = self._simulate(n=120, rho=0.7, seed=777)
+
+        assert 0.60 < hac_coverage < 0.82, (
+            f"RR-003 expects HAC coverage near 0.72 at rho=0.7, n=120; got {hac_coverage:.3f}"
+        )
+
+
+@pytest.mark.slow
+class TestHeteroskedasticCoverage:
+    """HC3 and ordinary OLS target the same variance for an intercept-only mean.
+
+    Documented as RR-004. For a plain mean, Var(ybar) = sum(sigma_i^2)/n^2 and the OLS
+    estimate s^2/n is already consistent for it, so HC3 is a different finite-sample
+    estimator rather than a correction. The robustness that matters in this package is
+    the cluster-robust wild bootstrap path, not HC3 itself.
+    """
+
+    REPLICATES = 400
+    N = 120
+    TRUE_MU = 0.25
+
+    def _simulate(self, seed):
+        rng = np.random.default_rng(seed)
+        scales = np.linspace(0.3, 3.0, self.N)
+        hc3_hits, iid_hits = [], []
+        for _ in range(self.REPLICATES):
+            df = pd.DataFrame({"diff": self.TRUE_MU + rng.normal(0.0, 1.0, self.N) * scales})
+            hc3 = HeteroskedasticTOST("diff").fit(df, ALPHA, MARGINS).iloc[0]
+            hc3_hits.append(hc3["ci_low"] <= self.TRUE_MU <= hc3["ci_high"])
+            iid = IIDTOST("diff").fit(df, ALPHA, MARGINS).iloc[0]
+            iid_hits.append(iid["ci_low"] <= self.TRUE_MU <= iid["ci_high"])
+        return _coverage(hc3_hits), _coverage(iid_hits)
+
+    def test_hc3_attains_at_least_nominal_coverage_under_heteroskedasticity(self):
+        hc3_coverage, _ = self._simulate(seed=31)
+
+        tol = _binomial_tolerance(NOMINAL, self.REPLICATES)
+        assert hc3_coverage > NOMINAL - tol, (
+            f"HC3 coverage {hc3_coverage:.3f} fell below nominal {NOMINAL:.2f}"
+        )
+
+    def test_hc3_and_iid_coverage_agree_for_an_intercept_only_mean(self):
+        """RR-004: heteroskedasticity alone does not bias the ordinary mean's SE."""
+        hc3_coverage, iid_coverage = self._simulate(seed=31)
+
+        assert abs(hc3_coverage - iid_coverage) < 0.05, (
+            f"HC3 {hc3_coverage:.3f} and IID {iid_coverage:.3f} should agree closely "
+            "for an intercept-only model; a large gap would contradict RR-004"
+        )

@@ -138,3 +138,102 @@ guard all eight required JOSS sections.
 ### Merge/release impact
 
 Paper-only; no library behaviour changed. Does not block a release.
+
+## RR-003 — Temporal engine materially undercovers under serial correlation
+
+- **Severity:** high
+- **Category:** statistical validity
+- **Status:** open — requires a scope decision
+- **Affected files:** `pyTOST/engines/temporal_tost.py`, `paper.md`
+
+### Evidence
+
+Monte Carlo coverage of the temporal (Newey--West HAC) engine against a nominal
+0.900, AR(1) paired differences with known mean, 400--500 replicates:
+
+| rho | n | Temporal (HAC) | IID |
+|-----|-----|------|------|
+| 0.0 | 120 | 0.868 | 0.886 |
+| 0.0 | 400 | 0.880 | 0.894 |
+| 0.5 | 120 | 0.798 | 0.618 |
+| 0.5 | 400 | 0.838 | 0.650 |
+| 0.7 | 120 | **0.720** | 0.468 |
+| 0.7 | 400 | **0.786** | 0.486 |
+
+The engine clearly improves on the IID engine, which is the package's core claim, but
+it does not attain its stated level. At rho = 0.7, n = 120, a nominally 90% interval
+covers 72% of the time.
+
+This is not a lag-selection problem. Sweeping the HAC truncation lag at rho = 0.7
+gives at most 0.757 (n = 120) and 0.825 (n = 400):
+
+| lag | auto(4) | 8 | 12 | 16 | 24 | 32 |
+|-----|------|------|------|------|------|------|
+| n=120 | 0.715 | 0.752 | 0.757 | 0.748 | 0.735 | 0.720 |
+| n=400 | 0.772 | 0.805 | 0.818 | 0.823 | 0.825 | 0.825 |
+
+The cause is the combination of downward-biased HAC variance estimation in finite
+samples with the standard-normal critical value used in `_hac`.
+
+### Option already present in the codebase
+
+`TemporalTOST._glsar1` implements an AR(1) GLS path with a $t$ critical value. It is
+substantially better calibrated:
+
+| rho | n | GLSAR(1) | HAC |
+|-----|-----|------|------|
+| 0.0 | 400 | 0.890 | 0.880 |
+| 0.5 | 400 | 0.882 | 0.838 |
+| 0.7 | 120 | 0.838 | 0.720 |
+| 0.7 | 400 | 0.877 | 0.786 |
+| 0.9 | 400 | 0.868 | n/a |
+
+### Scope decision required
+
+Changing which estimator backs the temporal engine alters public behaviour and is a
+scope decision, not a bug fix. Options: make GLSAR(1) the default; expose a `method`
+argument defaulting to HAC; adopt fixed-b/KVB critical values; or keep HAC and
+document the limitation. Not actioned pending approval.
+
+## RR-004 — Heteroskedastic engine provides no benefit for the intercept-only mean
+
+- **Severity:** medium
+- **Category:** accuracy of claims
+- **Status:** open — documentation fix pending scope decision on RR-003
+- **Affected files:** `paper.md`, `pyTOST/engines/heteroskedastic_tost.py`
+
+### Evidence
+
+With independent, strongly heteroskedastic paired differences (sigma ramped 0.3 to
+3.0 across n = 120), 600 replicates, nominal 0.900:
+
+- Heteroskedastic engine (HC3): 0.930
+- IID engine: 0.930
+
+The two are indistinguishable, and this is expected analytically. For an
+intercept-only model, Var(ybar) = (1/n^2) * sum(sigma_i^2), and the ordinary OLS
+variance estimate s^2/n converges to the same quantity, because E[s^2] approaches the
+average of sigma_i^2. Heteroskedasticity-robust covariance matters for *slopes*, not
+for an unweighted mean. HC3 is therefore a different finite-sample estimator of the
+same target, not a correction.
+
+The engine's real contribution is the cluster-robust wild bootstrap path, which
+applies when a cluster variable is supplied. The paper should not imply that HC3
+repairs anything for the mean under pure heteroskedasticity.
+
+## RR-005 — AR(1) GLS path is unreachable dead code, and the paper claims otherwise
+
+- **Severity:** medium
+- **Category:** accuracy of claims / dead code
+- **Status:** paper claim corrected; code disposition pending RR-003
+- **Affected files:** `pyTOST/engines/temporal_tost.py`, `paper.md`
+
+`TemporalTOST.fit` calls only `_hac`. `_glsar1` has no caller anywhere in the package,
+tests, or workflow. Nevertheless:
+
+- `paper.md` stated "An AR(1) GLS path is available by calling `TemporalTOST`
+  directly," which is false; calling the class directly still routes to `_hac`.
+- `pyTOST/engines/temporal_tost.py:9` states "the workflow can run both," also false.
+
+The paper sentence has been removed. The code disposition (expose it or delete it)
+depends on the RR-003 decision.
