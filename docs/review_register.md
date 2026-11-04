@@ -237,3 +237,53 @@ tests, or workflow. Nevertheless:
 
 The paper sentence has been removed. The code disposition (expose it or delete it)
 depends on the RR-003 decision.
+
+## RR-006 — AI usage disclosure does not meet the JOSS policy
+
+- **Severity:** high
+- **Category:** publication policy / research integrity
+- **Status:** open — blocked on author input, cannot be resolved by the agent
+- **Affected files:** `paper.md`
+
+### Finding
+
+JOSS requires the "AI usage disclosure" statement to contain three specific elements:
+
+1. **Tool use:** the tools/models used **and their versions**, and **where** they were
+   used (code, paper text, docs).
+2. **Nature and scope of assistance:** e.g. code generation, refactoring, test
+   scaffolding, copy-editing, drafting.
+3. **Confirmation of review:** an assertion that human authors reviewed, edited and
+   validated all AI-assisted outputs and made the core design decisions.
+
+The paper currently says only that "Generative AI tools assisted with documentation
+refinement and editing," plus a review confirmation. It names no tool, gives no
+version, does not say where AI was used beyond documentation, and understates scope
+if AI assisted with code or tests.
+
+JOSS states that failure to provide a complete and accurate disclosure "may be
+considered an ethical breach," with consequences including desk rejection and
+post-publication withdrawal.
+
+### Required action
+
+Only the author can supply this. The disclosure must name each tool and version, the
+areas it touched, and the nature of the assistance. This cannot be inferred from the
+repository and must not be guessed.
+
+## RR-007 — Spatial and spatiotemporal coverage remain unvalidated (cost)
+
+- **Severity:** medium
+- **Category:** validation coverage
+- **Status:** open — needs an offline benchmark harness
+- **Affected files:** `tests/test_ci_coverage.py`, `paper.md`
+
+Measured single-fit costs: spatial Matern GP is 6.9 s with the default
+`nu_grid=(0.5, 1.5, 2.5)` and per-cluster nugget, 1.9 s with `nu` fixed at 1.5, and
+1.2 s at n = 40. A 400-replicate simulation is therefore 8-46 minutes, and the
+spatiotemporal engine adds a 400-draw parametric bootstrap on top of that.
+
+These cannot run in CI. They need a separate benchmark script that is run
+deliberately, writes a committed results artifact, and is cited by the paper. Until
+then the paper must continue to state that these two engines are not coverage
+validated. Supersedes the spatial/spatiotemporal portion of SB-002.
