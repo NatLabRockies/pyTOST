@@ -87,38 +87,65 @@ class TestOrderInvariance:
         assert _fit(scrambled)["ci_low"] != pytest.approx(sorted_fit["ci_low"])
 
 
-class TestTiedTimeWarning:
-    def test_tied_times_warn_that_hac_assumes_one_series(self, panel_df):
-        with pytest.warns(UserWarning, match="duplicate time"):
+class TestPanelAggregation:
+    """Replicated time points are averaged into a series (RR-001).
+
+    Treating cross-sectional replicates as consecutive time points misrepresents the
+    autocorrelation completely, so the engine reduces a panel to one observation per
+    time point before fitting.
+    """
+
+    def test_a_balanced_panel_is_averaged_to_one_point_per_time(self, panel_df):
+        result = TemporalTOST("diff", "time").fit(panel_df, ALPHA, MARGINS)
+
+        assert "averaged to 40 time points" in result.iloc[0]["method"]
+
+    def test_a_balanced_panel_does_not_warn(self, panel_df):
+        """Equal replication per time point leaves the estimand unchanged."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
             TemporalTOST("diff", "time").fit(panel_df, ALPHA, MARGINS)
 
-    def test_the_warning_names_the_engine_and_suggests_alternatives(self, panel_df):
-        with pytest.warns(UserWarning) as caught:
-            TemporalTOST("diff", "time").fit(panel_df, ALPHA, MARGINS)
+    def test_aggregating_matches_fitting_the_averaged_series_directly(self, panel_df):
+        collapsed = (
+            panel_df.groupby("time", as_index=False)["diff"].mean().sort_values("time")
+        )
 
-        message = str(caught[0].message)
-        assert "TemporalTOST" in message
-        assert "spatiotemporal" in message or "cluster" in message
+        from_panel = TemporalTOST("diff", "time").fit(panel_df, ALPHA, MARGINS).iloc[0]
+        from_series = TemporalTOST("diff", "time").fit(collapsed, ALPHA, MARGINS).iloc[0]
 
-    def test_a_clean_series_does_not_warn(self, series_df):
+        assert from_panel["mu_hat"] == pytest.approx(from_series["mu_hat"])
+        assert from_panel["ci_low"] == pytest.approx(from_series["ci_low"])
+        assert from_panel["ci_high"] == pytest.approx(from_series["ci_high"])
+
+    def test_an_unbalanced_panel_warns_that_time_points_are_equally_weighted(self, panel_df):
+        unbalanced = panel_df.drop(panel_df.index[:2])
+
+        with pytest.warns(UserWarning, match="unequal numbers of observations"):
+            TemporalTOST("diff", "time").fit(unbalanced, ALPHA, MARGINS)
+
+    def test_a_clean_series_does_not_warn_or_report_aggregation(self, series_df):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            TemporalTOST("diff", "time").fit(series_df, ALPHA, MARGINS)
+            result = TemporalTOST("diff", "time").fit(series_df, ALPHA, MARGINS)
 
-    def test_require_unique_times_still_raises_instead_of_warning(self, panel_df):
+        assert "averaged to" not in result.iloc[0]["method"]
+
+    def test_require_unique_times_still_raises(self, panel_df):
         with pytest.raises(ValueError, match="duplicate time"):
             TemporalTOST("diff", "time", require_unique_times=True).fit(
                 panel_df, ALPHA, MARGINS
             )
 
-    def test_the_warning_reaches_users_of_the_workflow(self, panel_df):
-        with pytest.warns(UserWarning, match="duplicate time"):
-            run_tost(
-                panel_df,
-                y="diff",
-                margins=MARGINS,
-                alpha=ALPHA,
-                engine="temporal",
-                time="time",
-                options=WorkflowOptions(do_sensitivity=False, bootstrap_B=0),
-            )
+    def test_the_workflow_path_also_aggregates(self, panel_df):
+        res = run_tost(
+            panel_df,
+            y="diff",
+            margins=MARGINS,
+            alpha=ALPHA,
+            engine="temporal",
+            time="time",
+            options=WorkflowOptions(do_sensitivity=False, bootstrap_B=0),
+        )
+
+        assert "averaged to 40 time points" in res["primary"].iloc[0]["method"]

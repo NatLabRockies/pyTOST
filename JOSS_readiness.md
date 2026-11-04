@@ -73,20 +73,24 @@ jobs:
 
 ---
 
-### 3. Obtain at least one external or citable research use
+### 3. Strengthen the research impact statement (not a blocker)
 
 **File:** `paper.md` — "Research impact statement"
 
-The current statement describes only internal use at NLR. JOSS screening criterion 2
-requires *demonstrated* research impact, not aspirational statements. Acceptable signals
-include a preprint, a published paper, a DOI linking to the software (e.g., a Zenodo
-deposit already cited somewhere), or documented adoption by a collaborator at another
-institution.
+An earlier revision of this document treated external adoption as a gate. That was an
+over-reading of the JOSS criteria. The
+[submission guidelines](https://joss.readthedocs.io/en/latest/submitting.html) require
+evidence of research use "at minimum by the developers themselves," and list external
+engagement as a *strong positive signal, not a gate*. What is genuinely disqualifying is
+an **aspirational** statement, that is, describing intended rather than realized use.
 
-**Fix (fastest path):** Post a preprint to arXiv or ESSOAr describing an SAV equivalence
-analysis that uses pyTOST as its inference engine. Then cite that preprint in the paper's
-Research Impact section. This simultaneously satisfies the impact criterion and gives the
-community a concrete use-case reference.
+The current statement therefore satisfies criterion 2: it describes realized internal use
+at NLR and points to verifiable artifacts (the worked example, the regenerable figure,
+coverage results produced by the test suite, and a Zenodo DOI).
+
+**Optional strengthening, in order of value:** a preprint describing an SAV equivalence
+analysis that uses pyTOST; documented adoption by a collaborator at another institution;
+an external issue or pull request. None of these blocks submission.
 
 ---
 
@@ -330,11 +334,11 @@ package and produces a real, reviewable commit.
 |------|------|--------------------------|
 | 1 | Add parametric tests validating CI coverage against analytical solutions for the IID and cluster engines (Monte Carlo, fixed seed) | `tests: add CI coverage Monte Carlo validation for IID and cluster engines` |
 | 1 | Add a `RobustLocationTOST` path for trimmed mean with configurable trim fraction | `feat: support configurable trim fraction in RobustLocationTOST` |
-| 2 | Post preprint (arXiv or ESSOAr) describing a concrete use case; add citation to `paper.md` research impact section | `paper: cite preprint in research impact statement` |
+| 2 | *Optional, not a gate:* post a preprint describing a concrete use case and cite it in the research impact section | `paper: cite preprint in research impact statement` |
 | 2 | Tag `v0.17.0` release; trigger Zenodo workflow to mint a DOI; update `.zenodo.json` with DOI | `release: v0.17.0 — mint Zenodo DOI for JOSS submission` |
 | 3 | Update `paper.md` date field and do final review of all sections against JOSS review checklist | `paper: final pre-submission review pass` |
 | 3 | Update README "Development status" section (fix #5) | `docs: update README development status for v0.17 release` |
-| 4 | Ask a colleague at a different institution to install pyTOST from PyPI on a clean environment and file a GitHub issue with their feedback | *(their issue + your response is the external engagement signal)* |
+| 4 | *Optional, not a gate:* ask a colleague at another institution to install pyTOST from PyPI on a clean environment and file a GitHub issue | *(their issue + your response is a positive engagement signal)* |
 | 4 | Submit to JOSS | — |
 
 ---

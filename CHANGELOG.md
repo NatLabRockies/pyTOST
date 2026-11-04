@@ -19,6 +19,29 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
 - Zenodo archive DOI for the v0.17.0 release, referenced from the README and
   `.zenodo.json`. The concept DOI `10.5281/zenodo.22858610` always resolves to the most
   recent release.
+- `TemporalTOST` gained `method` (`"glsar"` or `"hac"`) and `ar_order`, exposed through
+  `WorkflowOptions` as `temporal_method` and `temporal_ar_order`.
+- Coverage simulations for the temporal and heteroskedastic engines in
+  `tests/test_ci_coverage.py`.
+
+### Changed
+
+- **Temporal engine default is now autoregressive GLS rather than Newey--West HAC.**
+  Measured coverage against a nominal 0.900 on AR(1) data with n = 120 improves from
+  0.787, 0.715, and 0.485 to 0.873, 0.860, and 0.858 at rho = 0.5, 0.7, and 0.9. The
+  estimator applies a Marriott--Pope/Kendall bias correction to the autoregressive
+  coefficient and a Student-t critical value at Bartlett's effective sample size. Pass
+  `method="hac"` to restore the previous estimator. See RR-003 in
+  `docs/review_register.md`.
+- `TemporalTOST` now averages replicated time points before fitting instead of warning
+  about them, because the engine models a single series. A warning is still issued when
+  time points carry unequal numbers of observations, since the estimand then shifts.
+  `require_unique_times=True` continues to reject such input.
+
+### Fixed
+
+- The AR(1) GLS code path was unreachable and the paper described it as available
+  (RR-005). It is now the default and is covered by tests.
 
 ## [0.17.0] - 2026-09-20
 

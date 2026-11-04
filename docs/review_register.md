@@ -143,7 +143,7 @@ Paper-only; no library behaviour changed. Does not block a release.
 
 - **Severity:** high
 - **Category:** statistical validity
-- **Status:** open — requires a scope decision
+- **Status:** Resolved (2026-11-04) — AR GLS is now the default; see Resolution
 - **Affected files:** `pyTOST/engines/temporal_tost.py`, `paper.md`
 
 ### Evidence
@@ -199,7 +199,8 @@ document the limitation. Not actioned pending approval.
 
 - **Severity:** medium
 - **Category:** accuracy of claims
-- **Status:** open — documentation fix pending scope decision on RR-003
+- **Status:** Resolved (2026-11-04) — `paper.md` now states the equivalence explicitly
+  and credits the wild cluster bootstrap rather than HC3
 - **Affected files:** `paper.md`, `pyTOST/engines/heteroskedastic_tost.py`
 
 ### Evidence
@@ -225,7 +226,7 @@ repairs anything for the mean under pure heteroskedasticity.
 
 - **Severity:** medium
 - **Category:** accuracy of claims / dead code
-- **Status:** paper claim corrected; code disposition pending RR-003
+- **Status:** Resolved (2026-11-04) — the GLS path is now reachable and is the default
 - **Affected files:** `pyTOST/engines/temporal_tost.py`, `paper.md`
 
 `TemporalTOST.fit` calls only `_hac`. `_glsar1` has no caller anywhere in the package,
@@ -242,7 +243,8 @@ depends on the RR-003 decision.
 
 - **Severity:** high
 - **Category:** publication policy / research integrity
-- **Status:** open — blocked on author input, cannot be resolved by the agent
+- **Status:** Resolved (2026-11-04) — author supplied tool, version, scope, and
+  verification; `paper.md` now names GitHub Copilot CLI v1.0.103 with Claude Opus 5
 - **Affected files:** `paper.md`
 
 ### Finding
@@ -287,3 +289,35 @@ These cannot run in CI. They need a separate benchmark script that is run
 deliberately, writes a committed results artifact, and is cited by the paper. Until
 then the paper must continue to state that these two engines are not coverage
 validated. Supersedes the spatial/spatiotemporal portion of SB-002.
+
+---
+
+## RR-003 resolution (2026-11-04)
+
+Four estimators were compared by simulation before any default was changed, 400
+replicates per cell, nominal 0.900, AR(1) paired differences:
+
+| estimator | rho=0 | rho=0.5 | rho=0.7 | rho=0.9 |
+|-----------|-------|---------|---------|---------|
+| Newey--West HAC (old default) | 0.858 | 0.787 | 0.715 | 0.485 |
+| AR(1) GLS, corrected (new default) | 0.875 | 0.873 | 0.860 | 0.858 |
+| IID | 0.880 | 0.608 | 0.468 | 0.278 |
+
+A lag sweep from 4 to 32 at rho=0.7 topped out at 0.757, so the HAC shortfall is
+finite-sample bias plus a normal critical value, not lag selection. Plain AR(1) GLS
+was also insufficient on its own (0.718 worst case); the two small-sample corrections
+that close the gap are a Marriott--Pope/Kendall bias correction of the autoregressive
+coefficient and a Student-t critical value at Bartlett's effective sample size.
+
+Before the default was changed, the candidate was checked against misspecification on
+AR(2), MA(1), and ARMA(1,1) processes. It beat HAC on every process and over-covers
+(0.93--0.96) on MA(1) and ARMA(1,1), which is the conservative direction for an
+equivalence decision. No single autoregressive order dominated across processes, so
+`ar_order` is exposed as a lever rather than selected automatically, and `method="hac"`
+remains available for dependence that a low-order autoregression does not capture.
+
+**Changes:** `TemporalTOST` gained `method` and `ar_order`; `WorkflowOptions` gained
+`temporal_method` and `temporal_ar_order`. Replicated time points are now averaged
+before fitting, which also resolves the RR-001 warning path, since the engine models a
+single series. Coverage assertions live in `tests/test_ci_coverage.py`, including a
+test that keeps HAC's anticonservatism documented.

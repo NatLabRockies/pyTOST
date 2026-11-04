@@ -35,11 +35,11 @@ BASELINE = {
     # HAC result depended on the caller's row order and the pinned numbers were not
     # reproducible across platforms (docs/review_register.md, RR-001).
     "temporal": {
-        "mu_hat": 0.13331724077602888,
-        "ci_low": 0.09547693392315121,
-        "ci_high": 0.17115754762890656,
+        "mu_hat": 0.13111981364416597,
+        "ci_low": 0.08971546974927275,
+        "ci_high": 0.1725241575390592,
         "equivalent": True,
-        "df": math.inf,
+        "df": 117.01652892561984,
     },
     "spatial": {
         "mu_hat": 0.1415157128366212,
@@ -116,8 +116,8 @@ def test_deterministic_engine_regression_baseline():
         temporal_long, index_cols=["sample_id", "series_id", "t"]
     ).rename(columns={"t": "time"})
     assert temporal_df["time"].is_unique, (
-        "the temporal baseline must be a single series; tied time values make the "
-        "pinned HAC numbers depend on row order (RR-001)"
+        "the temporal baseline must be a single series; tied time values are "
+        "aggregated, which would change the pinned numbers (RR-001)"
     )
     temporal = run_tost(
         temporal_df,

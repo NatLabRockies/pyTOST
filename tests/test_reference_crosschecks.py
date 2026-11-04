@@ -70,7 +70,7 @@ def test_temporal_hac_ci_matches_statsmodels_hac():
     for t in range(1, T):
         d[t] += 0.3 * d[t - 1]  # serial correlation
     df = pd.DataFrame({"diff": d, "time": np.arange(T)})
-    res = TemporalTOST("diff", "time", hac_lags=4).fit(df, alpha=0.05, margins=[1.0])
+    res = TemporalTOST("diff", "time", method="hac", hac_lags=4).fit(df, alpha=0.05, margins=[1.0])
     fit = sm.OLS(d, np.ones((T, 1))).fit(cov_type="HAC", cov_kwds={"maxlags": 4})
     mu = float(fit.params[0]); se = float(fit.bse[0]); z = stats.norm.ppf(0.95)
     assert res["ci_low"].iloc[0] == pytest.approx(mu - z * se, rel=1e-9)

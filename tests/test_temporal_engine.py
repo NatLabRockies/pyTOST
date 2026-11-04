@@ -5,10 +5,19 @@ from pyTOST import TemporalTOST
 
 
 def test_temporal_engine_result_schema_and_decisions(basic_diff_df):
-    res = TemporalTOST("diff", "time", hac_lags=2).fit(basic_diff_df, alpha=0.05, margins=[0.01, 0.5])
+    res = TemporalTOST("diff", "time").fit(basic_diff_df, alpha=0.05, margins=[0.01, 0.5])
 
     assert set(["delta", "mu_hat", "ci_low", "ci_high", "equivalent", "method", "df"]).issubset(res.columns)
     assert len(res) == 2
     assert bool(res.loc[res["delta"] == 0.5, "equivalent"].iloc[0]) is True
     assert bool(res.loc[res["delta"] == 0.01, "equivalent"].iloc[0]) is False
+    assert "GLS" in res["method"].iloc[0], "GLSAR is the default estimator from 0.18.0"
+
+
+def test_temporal_engine_hac_method_is_still_available(basic_diff_df):
+    res = TemporalTOST("diff", "time", method="hac", hac_lags=2).fit(
+        basic_diff_df, alpha=0.05, margins=[0.5]
+    )
+
     assert "HAC" in res["method"].iloc[0]
+    assert "lags=2" in res["method"].iloc[0]

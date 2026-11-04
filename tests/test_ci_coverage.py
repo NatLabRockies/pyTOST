@@ -228,20 +228,50 @@ class TestTemporalCoverage:
             f"HAC {hac_coverage:.3f} should markedly beat IID {iid_coverage:.3f}"
         )
 
-    def test_temporal_engine_still_undercovers_under_strong_ar1(self):
-        """Characterisation of a known limitation (RR-003), not an endorsement.
+    def test_temporal_engine_attains_nominal_coverage_under_strong_ar1(self):
+        """RR-003 resolved: the corrected AR GLS path holds its level under persistence.
 
-        Newey-West variance is biased downward in finite samples and the engine pairs
-        it with a standard-normal critical value, so a nominally 90% interval covers
-        roughly 72% at rho = 0.7, n = 120. Sweeping the truncation lag does not repair
-        this. If this test begins to fail because coverage improved, the engine's
-        inference was changed and RR-003 plus the paper's validation section must be
-        updated to match.
+        The previous Newey-West default covered roughly 0.72 here. The AR(1) GLS mean
+        with a bias-corrected persistence estimate and an effective-sample-size t
+        critical value covers close to nominal.
         """
-        hac_coverage, _ = self._simulate(n=120, rho=0.7, seed=777)
+        glsar_coverage, _ = self._simulate(n=120, rho=0.7, seed=777)
 
-        assert 0.60 < hac_coverage < 0.82, (
-            f"RR-003 expects HAC coverage near 0.72 at rho=0.7, n=120; got {hac_coverage:.3f}"
+        tol = _binomial_tolerance(NOMINAL, self.REPLICATES)
+        assert glsar_coverage == pytest.approx(NOMINAL, abs=tol), (
+            f"coverage {glsar_coverage:.3f} outside {NOMINAL:.2f} +/- {tol:.3f} at rho=0.7"
+        )
+
+    def test_temporal_engine_holds_up_under_near_unit_root_persistence(self):
+        """rho = 0.9 is where the old HAC default collapsed to about 0.52."""
+        glsar_coverage, iid_coverage = self._simulate(n=120, rho=0.9, seed=777)
+
+        assert iid_coverage < 0.40
+        assert glsar_coverage > 0.84, (
+            f"coverage {glsar_coverage:.3f} should stay near nominal at rho=0.9"
+        )
+
+    def test_hac_method_remains_available_and_is_anticonservative(self):
+        """The nonparametric HAC estimator is still reachable, and still undercovers.
+
+        Keeping this documented matters: HAC is asymptotically valid for general
+        dependence, so users may still want it, but at validation-study sample sizes
+        it does not hold its nominal level (RR-003).
+        """
+        rng = np.random.default_rng(777)
+        hits = []
+        for _ in range(self.REPLICATES):
+            df = _ar1_sample(rng, 120, 0.7, self.TRUE_MU)
+            row = (
+                TemporalTOST("diff", "t", method="hac")
+                .fit(df, ALPHA, MARGINS)
+                .iloc[0]
+            )
+            hits.append(row["ci_low"] <= self.TRUE_MU <= row["ci_high"])
+
+        assert _coverage(hits) < 0.82, (
+            "HAC is expected to remain anticonservative; if this improved, RR-003 and "
+            "the paper's validation section must be updated"
         )
 
 

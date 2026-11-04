@@ -14,6 +14,8 @@ These tests document:
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -284,14 +286,14 @@ class TestTemporalLagAndTiedRows:
 
     def test_temporal_hac_lags_configurable(self, monthly_df):
         """TemporalTOST with hac_lags=2 sets method label to report 2 lags (monthly case)."""
-        tost = TemporalTOST(y="diff", time="month", hac_lags=2)
+        tost = TemporalTOST(y="diff", time="month", method="hac", hac_lags=2)
         result = tost.fit(monthly_df, alpha=0.05, margins=[0.5])
         assert tost.hac_lags == 2
         assert "lags=2" in result.iloc[0]["method"]
 
     def test_temporal_monthly_series_12_points_2_lags(self, monthly_df):
         """12-point monthly series with 2 lags produces finite CI (case analysis setup)."""
-        tost = TemporalTOST(y="diff", time="month", hac_lags=2)
+        tost = TemporalTOST(y="diff", time="month", method="hac", hac_lags=2)
         result = tost.fit(monthly_df, alpha=0.05, margins=[0.5])
         assert len(result) == 1
         row = result.iloc[0]
@@ -306,18 +308,46 @@ class TestTemporalLagAndTiedRows:
         with pytest.raises(ValueError, match="duplicate time values"):
             tost.fit(tied_df, alpha=0.05, margins=[0.5])
 
-    def test_temporal_accepts_tied_rows_by_default(self, monthly_df):
-        """By default (require_unique_times=False), TemporalTOST accepts tied time rows.
+    def test_temporal_averages_tied_rows_into_one_point_per_time(self, monthly_df):
+        """Tied time values are collapsed by averaging (docs/review_register.md, RR-001).
 
-        It warns while doing so: HAC inference treats the data as one sequence indexed
-        by time, which tied rows violate (docs/review_register.md, RR-001).
+        A temporal model describes how one observation follows another in time, so
+        replicated time points must be reduced to a series before fitting rather than
+        treated as consecutive observations.
         """
         tied_df = pd.concat([monthly_df, monthly_df.iloc[[0]]], ignore_index=True)
-        tost = TemporalTOST(y="diff", time="month", hac_lags=2, require_unique_times=False)
-        # Should not raise; treats multiple rows at same time as repeated observations
-        with pytest.warns(UserWarning, match="duplicate time"):
+        tost = TemporalTOST(y="diff", time="month", require_unique_times=False)
+
+        # This duplicate makes the panel unbalanced, which changes the estimand from
+        # the mean of all rows to the mean of per-time means, so it must say so.
+        with pytest.warns(UserWarning, match="unequal numbers of observations"):
             result = tost.fit(tied_df, alpha=0.05, margins=[0.5])
+
         assert isinstance(result, pd.DataFrame)
+        assert "averaged to" in result.iloc[0]["method"]
+
+    def test_balanced_panels_are_averaged_without_changing_the_estimand(self, monthly_df):
+        """Averaging a balanced panel leaves the mean untouched, so it warns about nothing."""
+        doubled = pd.concat([monthly_df, monthly_df], ignore_index=True)
+        tost = TemporalTOST(y="diff", time="month")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            result = tost.fit(doubled, alpha=0.05, margins=[0.5])
+
+        # Averaging the doubled panel reconstructs the original series exactly, so the
+        # whole fit must agree, not merely the point estimate.
+        baseline = tost.fit(monthly_df, alpha=0.05, margins=[0.5]).iloc[0]
+        assert result.iloc[0]["mu_hat"] == pytest.approx(baseline["mu_hat"])
+        assert result.iloc[0]["ci_low"] == pytest.approx(baseline["ci_low"])
+        assert result.iloc[0]["ci_high"] == pytest.approx(baseline["ci_high"])
+
+    def test_require_unique_times_still_rejects_tied_rows(self, monthly_df):
+        tied_df = pd.concat([monthly_df, monthly_df.iloc[[0]]], ignore_index=True)
+        tost = TemporalTOST(y="diff", time="month", require_unique_times=True)
+
+        with pytest.raises(ValueError, match="duplicate time values"):
+            tost.fit(tied_df, alpha=0.05, margins=[0.5])
 
 
 # ---------------------------------------------------------------------------

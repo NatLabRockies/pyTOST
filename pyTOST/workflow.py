@@ -55,11 +55,21 @@ class WorkflowOptions:
     # Block size (same units as x/y) for spatial block bootstrap
     spatial_block_size: float = 1.0
 
-    # Newey–West truncation lag for the temporal engine.
+    # Newey–West truncation lag for the temporal engine. Applies only when
+    # temporal_method="hac".
     #   - None   -> use the engine default ("auto")
     #   - int    -> fix the truncation lag
     #   - "auto" -> select from the sample size via auto_hac_lags()
     max_lag: Optional[Union[int, str]] = None
+
+    # Estimator backing the temporal engine.
+    #   - None     -> use the engine default ("glsar")
+    #   - "glsar"  -> AR(p) GLS mean with small-sample corrections
+    #   - "hac"    -> Newey–West HAC with a normal critical value
+    temporal_method: Optional[str] = None
+
+    # AR order for temporal_method="glsar". None uses the engine default of 1.
+    temporal_ar_order: Optional[int] = None
 
 def _infer_cross_cluster_dependence(
     *,
@@ -138,8 +148,11 @@ def run_tost(
         - ``"iid"``: independent observations; intercept-only OLS with a Student-t CI.
         - ``"cluster"``: dependence within clusters, independence across them;
           cluster-robust sandwich variance with ``df = G - 1``. Requires ``cluster``.
-        - ``"temporal"``: serial correlation; Newey–West HAC variance with a normal
-          critical value. Requires ``time``. See ``WorkflowOptions.max_lag``.
+        - ``"temporal"``: serial correlation; AR(p) GLS mean with small-sample
+          persistence and degrees-of-freedom corrections. Requires ``time``. Set
+          ``WorkflowOptions.temporal_method="hac"`` for the Newey–West HAC estimator
+          used before 0.18.0, which is nonparametric but anticonservative; see
+          ``WorkflowOptions.max_lag`` and ``WorkflowOptions.temporal_ar_order``.
         - ``"spatial"``: within-cluster spatial correlation; Matérn GLS with a profile
           likelihood-ratio CI. Requires ``cluster``, ``x``, and ``ycoord``.
         - ``"spatiotemporal"``: joint space-time dependence; separable AR(1) ⊗ Matérn
@@ -255,7 +268,13 @@ def run_tost(
     elif eng == "temporal":
         if not time:
             raise ValueError("engine='temporal' requires `time` column name.")
-        temporal_kwargs = {} if options.max_lag is None else {"hac_lags": options.max_lag}
+        temporal_kwargs = {}
+        if options.max_lag is not None:
+            temporal_kwargs["hac_lags"] = options.max_lag
+        if options.temporal_method is not None:
+            temporal_kwargs["method"] = options.temporal_method
+        if options.temporal_ar_order is not None:
+            temporal_kwargs["ar_order"] = options.temporal_ar_order
         primary = TemporalTOST(y, time, **temporal_kwargs).fit(df, alpha, margins)
 
     elif eng == "spatial":
