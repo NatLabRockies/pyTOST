@@ -455,6 +455,7 @@ Please use the repository issue tracker to:
 - discuss documentation improvements.
 
 See `CONTRIBUTING.md` for the recommended development workflow and local test commands.
+Participation is governed by the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## Development status
 

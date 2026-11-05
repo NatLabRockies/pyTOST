@@ -277,8 +277,9 @@ repository and must not be guessed.
 
 - **Severity:** medium
 - **Category:** validation coverage
-- **Status:** open — needs an offline benchmark harness
-- **Affected files:** `tests/test_ci_coverage.py`, `paper.md`
+- **Status:** resolved (2026-11-05)
+- **Affected files:** `tests/test_ci_coverage.py`, `scripts/coverage_benchmark.py`,
+  `docs/coverage_benchmark.md`, `paper.md`
 
 Measured single-fit costs: spatial Matern GP is 6.9 s with the default
 `nu_grid=(0.5, 1.5, 2.5)` and per-cluster nugget, 1.9 s with `nu` fixed at 1.5, and
@@ -289,6 +290,39 @@ These cannot run in CI. They need a separate benchmark script that is run
 deliberately, writes a committed results artifact, and is cited by the paper. Until
 then the paper must continue to state that these two engines are not coverage
 validated. Supersedes the spatial/spatiotemporal portion of SB-002.
+
+### Resolution
+
+The two engines were split by cost rather than treated as one gap.
+
+Re-measurement corrected the premise above. The spatiotemporal engine does **not**
+engage a parametric bootstrap in its default configuration: on balanced panels it
+takes the joint separable ML path and costs about 0.04 s per fit. A 200-replicate
+study therefore runs in roughly 12 s, so it was added to the test suite
+(`TestSpatioTemporalCoverage`) and runs on every commit.
+
+The spatial engine's cost is real but is driven by the profile-likelihood optimizer
+rather than by sample size, so shrinking the design does not reliably make it
+cheaper. It is validated offline by `scripts/coverage_benchmark.py`, which records
+configuration, seeds, estimator path, and environment, and writes
+`docs/coverage_benchmark.md`.
+
+Measured coverage against a nominal 0.900, 300 replicates, Monte Carlo SE 0.017:
+
+| engine | coverage | mean CI width | s/fit |
+|--------|---------:|--------------:|------:|
+| spatial | 0.890 | 0.126 | 0.89 |
+| spatiotemporal | 0.893 | 0.560 | 0.04 |
+
+Both lie within one Monte Carlo standard error of nominal, and both were measured
+under a deliberately misspecified covariance function: the generator draws from a
+squared-exponential field while the engines fit a Matern model. The spatial run
+fixes `nu_grid=(0.5,)` rather than profiling the default grid, so it validates the
+exponential-smoothness configuration rather than the full default search; this is
+recorded in the artifact.
+
+The gap was therefore one of measurement, not correctness. `paper.md` no longer
+claims these engines lack coverage validation.
 
 ---
 

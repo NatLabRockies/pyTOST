@@ -2,6 +2,12 @@
 
 Thank you for your interest in improving pyTOST.
 
+## Code of conduct
+
+This project is governed by the [Contributor Covenant](CODE_OF_CONDUCT.md). By
+participating you are expected to uphold it. Report unacceptable behavior to
+dylan.hettinger@nlr.gov.
+
 ## Reporting issues
 
 Please use the repository issue tracker to report bugs, installation problems, documentation errors, or feature requests.

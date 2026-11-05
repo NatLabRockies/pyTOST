@@ -17,7 +17,16 @@ import pandas as pd
 import pytest
 from scipy import stats
 
-from pyTOST import ClusterTOST, HeteroskedasticTOST, IIDTOST, TemporalTOST
+from pyTOST import (
+    IIDTOST,
+    ClusterTOST,
+    HeteroskedasticTOST,
+    SpatioTemporalConfig,
+    SpatioTemporalTOST,
+    TemporalTOST,
+)
+from pyTOST.data_gen.synthetic_tost_data import generate_spatiotemporal
+from tests.conftest import long_to_diff
 
 ALPHA = 0.05
 NOMINAL = 1 - 2 * ALPHA  # the CI-in-TOST rule uses a (1 - 2*alpha) interval
@@ -316,4 +325,65 @@ class TestHeteroskedasticCoverage:
         assert abs(hc3_coverage - iid_coverage) < 0.05, (
             f"HC3 {hc3_coverage:.3f} and IID {iid_coverage:.3f} should agree closely "
             "for an intercept-only model; a large gap would contradict RR-004"
+        )
+
+
+@pytest.mark.slow
+class TestSpatioTemporalCoverage:
+    """Coverage of the separable AR(1) x Matern engine on balanced panels.
+
+    This engine is cheap enough to validate on every commit, at roughly 0.05 s per
+    fit. Its spatial counterpart is not: the spatial engine's cost is dominated by the
+    profile-likelihood optimizer rather than by sample size, so it is validated offline
+    by ``scripts/coverage_benchmark.py``, which writes ``docs/coverage_benchmark.md``
+    (RR-007).
+    """
+
+    REPLICATES = 200
+    TRUE_MU = 0.15
+
+    def _replicate(self, seed):
+        long_df, _meta = generate_spatiotemporal(
+            n_space=18,
+            n_time=8,
+            length_scale=0.6,
+            rho=0.5,
+            spatial_sd=0.8,
+            obs_sd=0.2,
+            delta=self.TRUE_MU,
+            seed=seed,
+        )
+        df = long_to_diff(
+            long_df, index_cols=["sample_id", "x", "y_sp", "t"]
+        ).rename(columns={"y_sp": "ycoord", "t": "time"})
+        sites = {}
+        df["cluster_id"] = [
+            sites.setdefault(pair, len(sites))
+            for pair in zip(df["x"].round(8), df["ycoord"].round(8))
+        ]
+        return df
+
+    def _fit(self, df):
+        return SpatioTemporalTOST(
+            y="diff",
+            cluster="cluster_id",
+            time="time",
+            x="x",
+            ycoord="ycoord",
+            config=SpatioTemporalConfig(
+                point_estimator="equal_weighted", verbose_diagnostics=False
+            ),
+        ).fit(df, ALPHA, MARGINS).iloc[0]
+
+    def test_spatiotemporal_engine_attains_nominal_coverage(self):
+        """The estimand is the equal-weighted mean, so the truth is exactly TRUE_MU."""
+        hits = []
+        for seed in range(self.REPLICATES):
+            row = self._fit(self._replicate(seed))
+            hits.append(row["ci_low"] <= self.TRUE_MU <= row["ci_high"])
+
+        coverage = _coverage(hits)
+        tol = _binomial_tolerance(NOMINAL, self.REPLICATES)
+        assert coverage == pytest.approx(NOMINAL, abs=tol), (
+            f"coverage {coverage:.3f} outside {NOMINAL:.2f} +/- {tol:.3f}"
         )

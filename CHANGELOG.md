@@ -23,6 +23,15 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
   `WorkflowOptions` as `temporal_method` and `temporal_ar_order`.
 - Coverage simulations for the temporal and heteroskedastic engines in
   `tests/test_ci_coverage.py`.
+- Coverage simulation for the spatiotemporal engine (`TestSpatioTemporalCoverage`),
+  which runs on every commit at roughly 12 s for 200 replicates.
+- `scripts/coverage_benchmark.py`, an offline coverage study for the spatial and
+  spatiotemporal engines that records configuration, seeds, estimator path, and
+  environment, and writes the committed artifact `docs/coverage_benchmark.md`.
+  Against a nominal 0.900 over 300 replicates the spatial engine covers 0.890 and the
+  spatiotemporal engine 0.893, both within one Monte Carlo standard error.
+- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), linked from `README.md` and
+  `CONTRIBUTING.md`.
 
 ### Changed
 
