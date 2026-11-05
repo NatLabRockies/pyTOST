@@ -32,6 +32,11 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
   spatiotemporal engine 0.893, both within one Monte Carlo standard error.
 - `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), linked from `README.md` and
   `CONTRIBUTING.md`.
+- Third panel in the paper figure covering the heteroskedastic engine, so every engine
+  appears once in the role it is designed for. It uses clustered data with unequal
+  cluster variances (14 clusters of 10, SDs spanning 0.4 to 2.0) rather than the
+  constant-variance datasets of panels A and B, where heteroskedasticity-robust and IID
+  intervals coincide for a mean.
 
 ### Changed
 

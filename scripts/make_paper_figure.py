@@ -1,6 +1,8 @@
 """Generate the JOSS paper figure comparing engine CIs on synthetic datasets.
 
-The figure shows why dependence-aware inference matters, in two panels.
+The figure shows why dependence-aware inference matters, in three panels, one per
+dependence structure. Every engine the package ships appears exactly once in the role it
+is designed for, and the IID engine appears in all three as the common reference.
 
 Panel A is a spatial panel: 24 sites observed at 8 times. Four engines estimate the
 same mean paired difference from identical data, but the IID engine, which ignores the
@@ -10,8 +12,16 @@ and so declares equivalence at a margin where the dependence-aware engines do no
 Panel B is a single time series, because that is what the temporal engine targets. A
 pure-temporal model cannot be applied honestly to panel A: with one observation per time
 point it would collapse 24 sites into 8 values and discard the spatial design, so it is
-demonstrated on data matched to its assumptions instead. The heteroskedastic engine is
-omitted from both panels because neither dataset has non-constant variance.
+demonstrated on data matched to its assumptions instead.
+
+Panel C has unequal variances across clusters, which is the heteroskedastic engine's
+target. It is a separate panel rather than an extra bar on panel A because panels A and
+B have constant variance, where heteroskedasticity-robust intervals and IID intervals
+coincide for a mean: non-constant variance alone does not bias the ordinary standard
+error of an intercept-only model. Plotting the engine on constant-variance data would
+therefore imply a correction it does not make. The cluster-robust engine is repeated in
+panel C as a control, showing that the wild cluster bootstrap reaches a comparable
+interval by a different route rather than a wider one.
 
 Run with::
 
@@ -31,8 +41,9 @@ import numpy as np
 import pandas as pd
 
 from pyTOST import (
-    ClusterTOST,
     IIDTOST,
+    ClusterTOST,
+    HeteroskedasticTOST,
     SpatialConfig,
     SpatialTOST,
     SpatioTemporalConfig,
@@ -51,6 +62,11 @@ N_SPACE = 24
 N_TIME = 8
 N_SERIES_TIME = 120
 SERIES_RHO = 0.75
+N_HET_CLUSTERS = 14
+HET_PER_CLUSTER = 10
+HET_SD_LOW = 0.4
+HET_SD_HIGH = 2.0
+HET_CLUSTER_EFFECT = 0.4
 TRUE_SHIFT = 0.25
 MARGIN = 0.60
 ALPHA = 0.05
@@ -103,6 +119,45 @@ def build_autocorrelated_series() -> pd.DataFrame:
     diff = TRUE_SHIFT + safe_cholesky(cov) @ rng.normal(size=N_SERIES_TIME)
 
     return pd.DataFrame({"diff": diff, "time": np.arange(N_SERIES_TIME)})
+
+
+def build_unequal_variance_clusters() -> pd.DataFrame:
+    """Create clustered data whose clusters differ markedly in variance.
+
+    Cluster standard deviations are spread evenly over a five-fold range, and each
+    cluster also carries a mean offset scaled to its own noise level, so the data are
+    heteroskedastic and clustered at once. That pairing is what the heteroskedastic
+    engine's cluster-robust path is for: with unequal variances the few noisiest
+    clusters dominate the sampling variance of the mean, which an IID interval does not
+    register.
+    """
+    rng = np.random.default_rng(SEED)
+    sds = np.linspace(HET_SD_LOW, HET_SD_HIGH, N_HET_CLUSTERS)
+
+    frames = []
+    for cluster_id, sd in enumerate(sds):
+        offset = rng.normal(0.0, sd * HET_CLUSTER_EFFECT)
+        noise = rng.normal(0.0, sd, size=HET_PER_CLUSTER)
+        frames.append(
+            pd.DataFrame(
+                {"diff": TRUE_SHIFT + offset + noise, "cluster_id": cluster_id}
+            )
+        )
+
+    return pd.concat(frames, ignore_index=True)
+
+
+def fit_variance_engines(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Contrast IID, cluster-robust, and wild cluster bootstrap intervals."""
+    margins = [MARGIN]
+
+    return {
+        "IID (ignores dependence)": IIDTOST("diff").fit(df, ALPHA, margins),
+        "Cluster-robust": ClusterTOST("diff", "cluster_id").fit(df, ALPHA, margins),
+        "Heteroskedastic (wild bootstrap)": HeteroskedasticTOST(
+            "diff", cluster="cluster_id", seed=SEED
+        ).fit(df, ALPHA, margins),
+    }
 
 
 def fit_all_engines(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -174,11 +229,24 @@ def main() -> None:
     series_results = fit_series_engines(series)
     _report(f"Panel B: single series, {len(series)} time points", series_results)
 
+    variance = build_unequal_variance_clusters()
+    variance_results = fit_variance_engines(variance)
+    _report(
+        f"Panel C: unequal cluster variances, {len(variance)} observations",
+        variance_results,
+    )
+
     fig, axes = plt.subplots(
-        2,
+        3,
         1,
-        figsize=(8, 6.4),
-        gridspec_kw={"height_ratios": [len(panel_results), len(series_results)]},
+        figsize=(8, 9.0),
+        gridspec_kw={
+            "height_ratios": [
+                len(panel_results),
+                len(series_results),
+                len(variance_results),
+            ]
+        },
     )
 
     plot_ci(
@@ -194,6 +262,15 @@ def main() -> None:
         title=(
             f"B. Single autocorrelated series: {N_SERIES_TIME} time points, "
             f"ρ = {SERIES_RHO:g}"
+        ),
+    )
+    plot_ci(
+        variance_results,
+        margin=MARGIN,
+        ax=axes[2],
+        title=(
+            f"C. Unequal cluster variances: {N_HET_CLUSTERS} clusters × "
+            f"{HET_PER_CLUSTER}, SD {HET_SD_LOW:g}–{HET_SD_HIGH:g}"
         ),
     )
 

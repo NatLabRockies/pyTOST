@@ -42,3 +42,9 @@ the IID and cluster engines only. The temporal, spatial, spatiotemporal, and
 heteroskedastic engines have correctness tests but no coverage simulation. The spatial
 and spatiotemporal engines are the expensive ones to simulate and would need to run
 under the `slow` marker, or in a scheduled CI job rather than on every push.
+
+**Resolved 2026-11-05.** Every engine now has coverage validation. The temporal,
+heteroskedastic, and spatiotemporal engines run in the test suite; the spatial engine
+runs offline via `scripts/coverage_benchmark.py`, which writes
+`docs/coverage_benchmark.md`. See RR-003 and RR-007 in `docs/review_register.md` for
+the measured numbers and the reason for the offline/CI split.
