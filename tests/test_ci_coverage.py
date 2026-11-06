@@ -387,3 +387,70 @@ class TestSpatioTemporalCoverage:
         assert coverage == pytest.approx(NOMINAL, abs=tol), (
             f"coverage {coverage:.3f} outside {NOMINAL:.2f} +/- {tol:.3f}"
         )
+
+
+class TestWildClusterBootstrapCoverage:
+    """The cluster-robust wild bootstrap is the heteroskedastic engine's load-bearing path.
+
+    ``TestHeteroskedasticCoverage`` establishes RR-004, that HC3 and IID agree for an
+    intercept-only mean, which means HC3 coverage alone does not validate anything the
+    IID engine does not already do. What the engine adds is the wild cluster bootstrap
+    for data that is both heteroskedastic and clustered. The design matches panel C of
+    the paper figure, so the published figure and this validation describe the same
+    configuration. ``wild_B`` is left at the package default so the test exercises what
+    a user actually gets.
+    """
+
+    REPLICATES = 200
+    N_CLUSTERS = 14
+    PER_CLUSTER = 10
+    SD_LOW = 0.4
+    SD_HIGH = 2.0
+    CLUSTER_EFFECT = 0.4
+    TRUE_MU = 0.15
+
+    def _replicate(self, seed):
+        rng = np.random.default_rng(seed)
+        sds = np.linspace(self.SD_LOW, self.SD_HIGH, self.N_CLUSTERS)
+        rows = []
+        for g in range(self.N_CLUSTERS):
+            effect = rng.normal(0.0, sds[g] * self.CLUSTER_EFFECT)
+            for _ in range(self.PER_CLUSTER):
+                rows.append((g, self.TRUE_MU + effect + rng.normal(0.0, sds[g])))
+        return pd.DataFrame(rows, columns=["cluster_id", "diff"])
+
+    def _simulate(self):
+        wild_hits, iid_hits = [], []
+        for seed in range(self.REPLICATES):
+            df = self._replicate(seed)
+            wild = (
+                HeteroskedasticTOST("diff", cluster="cluster_id")
+                .fit(df, ALPHA, MARGINS)
+                .iloc[0]
+            )
+            wild_hits.append(wild["ci_low"] <= self.TRUE_MU <= wild["ci_high"])
+            iid = IIDTOST("diff").fit(df, ALPHA, MARGINS).iloc[0]
+            iid_hits.append(iid["ci_low"] <= self.TRUE_MU <= iid["ci_high"])
+        return _coverage(wild_hits), _coverage(iid_hits)
+
+    def test_wild_cluster_bootstrap_attains_nominal_coverage(self):
+        wild_coverage, _ = self._simulate()
+
+        tol = _binomial_tolerance(NOMINAL, self.REPLICATES)
+        assert wild_coverage == pytest.approx(NOMINAL, abs=tol), (
+            f"wild cluster bootstrap coverage {wild_coverage:.3f} outside "
+            f"{NOMINAL:.2f} +/- {tol:.3f}"
+        )
+
+    def test_ignoring_clustering_undercovers_on_the_same_data(self):
+        """Without the failure case the passing number above has no scale."""
+        wild_coverage, iid_coverage = self._simulate()
+
+        assert iid_coverage < NOMINAL - 0.1, (
+            f"IID coverage {iid_coverage:.3f} was expected to fall well below nominal "
+            f"{NOMINAL:.2f} on clustered heteroskedastic data"
+        )
+        assert wild_coverage > iid_coverage + 0.1, (
+            f"wild bootstrap {wild_coverage:.3f} should clearly beat IID "
+            f"{iid_coverage:.3f}"
+        )

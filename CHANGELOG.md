@@ -23,6 +23,11 @@ day-to-day development steps. Public, incremental development begins at v0.15.0.
   `WorkflowOptions` as `temporal_method` and `temporal_ar_order`.
 - Coverage simulations for the temporal and heteroskedastic engines in
   `tests/test_ci_coverage.py`.
+- Coverage simulation for the heteroskedastic engine's wild cluster bootstrap path
+  (`TestWildClusterBootstrapCoverage`), using the design from panel C of the paper
+  figure. The bootstrap covers 0.910 against nominal 0.900 where the IID engine covers
+  0.720 (RR-008). The pre-existing heteroskedastic test exercised only HC3, which
+  RR-004 shows is equivalent to IID for an intercept-only mean.
 - Coverage simulation for the spatiotemporal engine (`TestSpatioTemporalCoverage`),
   which runs on every commit at roughly 12 s for 200 replicates.
 - `scripts/coverage_benchmark.py`, an offline coverage study for the spatial and

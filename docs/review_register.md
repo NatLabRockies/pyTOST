@@ -324,6 +324,42 @@ recorded in the artifact.
 The gap was therefore one of measurement, not correctness. `paper.md` no longer
 claims these engines lack coverage validation.
 
+## RR-008 — Wild cluster bootstrap was never coverage-validated
+
+- **Severity:** medium
+- **Category:** validation gap
+- **Status:** Resolved (2026-11-04) — `TestWildClusterBootstrapCoverage` added to
+  `tests/test_ci_coverage.py`; `paper.md` now reports the measured numbers
+- **Affected files:** `tests/test_ci_coverage.py`, `paper.md`
+
+### Evidence
+
+Found during a manuscript review pass. RR-004 established that HC3 and IID agree for
+an intercept-only mean, and the paper states that the heteroskedastic engine's value
+is therefore the cluster-robust wild bootstrap rather than HC3. But the only committed
+coverage test for that engine (`TestHeteroskedasticCoverage`) exercises the HC3 path,
+which RR-004 shows validates nothing the IID engine does not already do. The
+load-bearing path had no coverage evidence, while `paper.md` asserted the engine was
+"likewise validated".
+
+The gap was closed rather than disclosed. Using the design from panel C of the paper
+figure (14 clusters of 10, cluster standard deviations spanning 0.4 to 2.0), 200
+replicates, nominal 0.900, Monte Carlo SE 0.021:
+
+| engine | coverage |
+|--------|---------:|
+| Heteroskedastic, wild cluster bootstrap | 0.910 |
+| IID | 0.720 |
+
+The bootstrap path is within one Monte Carlo standard error of nominal and the IID
+engine is not, so the engine does what the paper claims. `wild_B` is left at the
+package default so the test exercises the shipped configuration, and the design
+matches the published figure so the two describe the same configuration.
+
+The vague claim in `paper.md` was replaced by the measured pair above.
+
+---
+
 ---
 
 ## RR-003 resolution (2026-11-04)
