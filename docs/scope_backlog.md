@@ -73,3 +73,17 @@ The historical entries above are not new feature commitments. Remaining work:
   conditional timing, and the remaining maintainer-owned eligibility gate.
 
 Closed enhancements are not reopened merely to populate the tracker.
+
+## Near-term work identified 2026-11-18
+
+These are evidence-backed follow-ups, not a commitment to manufacture activity.
+See RR-009 through RR-011 in `docs/review_register.md` for reproductions and impact.
+
+| Target window | Work | Prerequisite / boundary |
+|---|---|---|
+| Week 1 | Reject missing temporal observations before aggregation (RR-009) | Focused input-validation fix; no new estimator or dependency |
+| Weeks 1-2 | Measure default spatial and spatiotemporal interval coverage (RR-010) | Extend the existing offline benchmark; do not assume default paths pass or fail |
+| Weeks 2-3 | Prepare a manuscript-aligned release and revision-specific provenance (RR-011) | Correctness and validation resolved first; maintainer approves version and publication |
+
+Eligibility evidence and final author review remain separate maintainer-owned
+gates in `JOSS_readiness.md`. These engineering tasks do not resolve them.

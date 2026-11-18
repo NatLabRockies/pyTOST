@@ -391,3 +391,93 @@ remains available for dependence that a low-order autoregression does not captur
 before fitting, which also resolves the RR-001 warning path, since the engine models a
 single series. Coverage assertions live in `tests/test_ci_coverage.py`, including a
 test that keeps HAC's anticonservatism documented.
+
+---
+
+## RR-009 - Temporal aggregation silently omits missing observations
+
+- **Severity:** High
+- **Category:** Correctness / input validation
+- **Status:** Open; verified 2026-11-18
+- **Affected files:** `pyTOST/engines/temporal_tost.py`, `pyTOST/workflow.py`,
+  `tests/test_temporal_order_invariance.py`
+- **Required action:** Reject missing responses and time labels before aggregation,
+  with actionable errors, consistently through the engine and workflow.
+- **Merge/release impact:** Resolve before the submission release; do not silently
+  change the analysis sample.
+
+### Evidence
+
+`TemporalTOST._prepare` calls `groupby(time)[response].mean()`, which omits NaN
+responses, and grouping omits missing time keys. On 30 time points with two
+responses each, setting the first response to NaN returns a finite interval and
+`equivalent=True` without a warning. Setting its time to NaN also returns a finite
+interval; the only warning concerns unequal replication, not missing data.
+Both results match explicitly dropping the incomplete row, but the method label
+still says `60 obs averaged to 30 time points`. `run_tost` also returns finite
+intervals in both cases.
+
+Reproduction used `np.random.default_rng(42)`, responses
+`0.1 + rng.normal(0, 0.2, 60)`, times `np.repeat(np.arange(30, dtype=float), 2)`,
+`alpha=0.05`, and margin `0.5`. This is a verified silent sample change, not a
+claim that every incomplete dataset yields an incorrect scientific conclusion.
+Add focused tests for missing response/time values through direct and workflow
+calls, with and without tied times. Preserve supported valid time-label types.
+
+## RR-010 - Spatial coverage evidence does not exercise default inference paths
+
+- **Severity:** High
+- **Category:** Validation gap / accuracy of claims
+- **Status:** Open; verified 2026-11-18
+- **Affected files:** `scripts/coverage_benchmark.py`, `docs/coverage_benchmark.md`,
+  `tests/test_ci_coverage.py`, `paper.md`
+- **Required action:** Measure the shipped default spatial and spatiotemporal
+  configurations and reconcile manuscript claims with estimator-specific evidence.
+- **Merge/release impact:** Submission validation gate; existing restricted-path
+  results must not be presented as coverage evidence for default paths.
+
+### Evidence
+
+The committed benchmark and spatiotemporal coverage test explicitly select
+`point_estimator="equal_weighted"`. The spatial benchmark also fixes
+`nu_grid=(0.5,)`. Its artifact correctly labels both exercised intervals as Wald.
+The defaults instead use spatial GLS/profile likelihood with the full smoothness
+grid, and spatiotemporal GLS with a conditional parametric-bootstrap interval.
+The equal-weighted branch bypasses that bootstrap. The manuscript describes those
+defaults, then reports 0.890/0.893 coverage without identifying the restricted
+paths in that paragraph.
+
+This reopens a configuration-specific portion of RR-007, not the validity of its
+measured results. No default-path undercoverage has been established by this
+investigation. Extend the existing offline benchmark rather than adding a new
+simulation framework; retain seeds, configuration, returned method, code revision,
+replicate counts, and Monte Carlo uncertainty. Choose any scientific repair only
+after measuring a failure, and do not weaken thresholds to pass.
+
+## RR-011 - Released artifact does not contain manuscript-described corrections
+
+- **Severity:** Medium
+- **Category:** Release reproducibility
+- **Status:** Open; verified 2026-11-18
+- **Affected files:** `pyproject.toml`, `CHANGELOG.md`, `.zenodo.json`, `paper.md`,
+  release artifacts and benchmark metadata
+- **Required action:** Prepare a maintainer-approved, validated release of the code
+  described in the manuscript and record a revision-specific reproduction path.
+- **Merge/release impact:** Blocks a reproducible submission release, not ordinary
+  ongoing development.
+
+### Evidence
+
+The latest GitHub release is v0.17.0, published 2026-09-20, and package metadata
+still reports 0.17.0. `git show v0.17.0:pyTOST/engines/temporal_tost.py` shows the
+old HAC default. The corrected GLS default, subsequent coverage tests, and offline
+benchmark are later commits and listed as unreleased. The benchmark environment
+nevertheless identifies the development checkout only as `pyTOST 0.17.0`.
+The manuscript describes the later corrections, so the existing release tag is
+not a sufficient reproduction identifier for its claims.
+
+Do not rewrite the old tag. Complete the correctness and validation work first,
+then select a new version, build and test distributions, publish through the
+approved maintainer workflow, and archive the same source. Align paper metadata,
+release notes, and benchmark provenance. Publication is a maintainer decision,
+not an automatic consequence of opening this issue.
