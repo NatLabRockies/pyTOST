@@ -334,32 +334,50 @@ without giving up the efficiency of the mean. Valid values satisfy
 `0.0 <= trim < 0.5`; anything else raises `ValueError`, as does an unrecognized
 `robust_location_stat`.
 
-### Controlling the temporal HAC lag
+### Temporal estimation and HAC lag selection
 
-The temporal engine uses a Newey–West HAC variance estimator. By default the truncation
-lag is selected from the sample size via the Newey–West (1994) plug-in rule
-`floor(4 * (n / 100) ** (2 / 9))`, so it grows with the length of the series. Use
-`max_lag` to override it:
+The temporal engine defaults to autoregressive GLS of order 1, with a bias correction
+for estimated persistence and a Student-t critical value based on effective sample
+size. Set `temporal_ar_order` to change the autoregressive order:
 
 ```python
-options = WorkflowOptions(max_lag=12)       # fixed lag
-options = WorkflowOptions(max_lag="auto")   # data-driven lag (the default)
-options = WorkflowOptions(max_lag=4)        # reproduce pyTOST < 0.17.0
+options = WorkflowOptions(temporal_method="glsar", temporal_ar_order=2)
 ```
 
-> **Changed in 0.17.0.** Earlier versions used a fixed lag of `4` regardless of sample
-> size, which under-smoothed long series and over-smoothed short ones. Pass
-> `max_lag=4` explicitly to reproduce results from an earlier version.
+Newey-West HAC inference remains available with `temporal_method="hac"`. It can
+undercover in short, strongly autocorrelated series; see the coverage comparisons in
+[`paper.md`](paper.md) and [`docs/review_register.md`](docs/review_register.md).
+For this method only, `max_lag` controls the truncation lag:
 
-The temporal engine expects **one observation per time point**. If several rows share a
-time value, HAC inference treats them as consecutive time points, which will not reflect
-the real autocorrelation; the engine warns in that case. Aggregate within time points
-first, or use the `cluster` or `spatiotemporal` engine, which model cross-sectional
-replication explicitly.
+```python
+options = WorkflowOptions(temporal_method="hac", max_lag=12)      # fixed lag
+options = WorkflowOptions(temporal_method="hac", max_lag="auto")  # default HAC lag rule
+options = WorkflowOptions(temporal_method="hac", max_lag=4)       # historical fixed lag
+```
 
-Longer lags admit more autocorrelation into the variance estimate and generally widen
-the interval. `"auto"` is recommended when the series length varies between analyses;
-the default of `4` is retained so results from earlier versions stay reproducible.
+The automatic rule is `floor(4 * (n / 100) ** (2 / 9))`, evaluated on the series
+length after any within-time aggregation. Specifying `max_lag` alone does not switch
+the default GLS estimator to HAC. To select the former fixed-lag HAC configuration,
+set both `temporal_method="hac"` and `max_lag=4`.
+
+Both methods model **one series**. When rows share a time value, the temporal engine
+averages their responses before fitting. For balanced panels, this preserves the
+arithmetic mean of the input responses; for unbalanced panels, each time point receives
+equal weight rather than each input row, and the engine warns about that change in
+target. The GLS point estimate also reflects its fitted covariance weights.
+Aggregation is not a panel-aware estimator and does not model within-time variation.
+Callers of the engine class can reject ties instead:
+
+```python
+from pyTOST import TemporalTOST
+
+temporal = TemporalTOST("diff", "time", require_unique_times=True)
+```
+
+`run_tost` also aggregates tied time points, but does not expose
+`require_unique_times`. Select the `cluster` or `spatiotemporal` engine explicitly
+when the sampling design calls for cross-sectional dependence to be modeled;
+`run_tost` does not automatically route panels to a different engine.
 
 ## Synthetic data generation
 
@@ -456,6 +474,8 @@ Please use the repository issue tracker to:
 
 See `CONTRIBUTING.md` for the recommended development workflow and local test commands.
 Participation is governed by the [Contributor Covenant](CODE_OF_CONDUCT.md).
+See [SUPPORT.md](SUPPORT.md) for reporting guidance and response expectations, and
+[GOVERNANCE.md](GOVERNANCE.md) for maintainer roles and the decision process.
 
 ## Development status
 

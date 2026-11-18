@@ -9,6 +9,8 @@ evidence rather than rediscovering them.
 ## SB-001 — Decide how the temporal engine should handle panel data
 
 - **Raised:** 2026-09-20, from `docs/review_register.md` RR-001
+- **Status:** Resolved, including documentation follow-up in
+  [#2](https://github.com/NatLabRockies/pyTOST/issues/2).
 - **Blocking:** No. The immediate reproducibility bug is fixed and the unsound case now
   warns.
 - **Affected files:** `pyTOST/engines/temporal_tost.py`, `pyTOST/workflow.py`
@@ -32,6 +34,14 @@ Options, in increasing order of effort:
 A decision should also settle whether `run_tost` routes panel data automatically or
 requires the user to choose an engine explicitly.
 
+**Reconciled 2026-11-18.** The description above records the original problem, not
+current behavior. `TemporalTOST` now defaults to corrected autoregressive GLS,
+averages responses within tied time points before fitting, and supports strict
+rejection with `require_unique_times=True`. No new panel estimator is required to
+close this item. The README now explains the GLS default, explicit HAC selection,
+within-time aggregation, its weighting implications, and strict rejection through
+the engine class. Engine selection remains explicit.
+
 ## SB-002 — Extend coverage validation to the remaining engines
 
 - **Raised:** 2026-09-20, during Month 3 validation work
@@ -48,3 +58,17 @@ heteroskedastic, and spatiotemporal engines run in the test suite; the spatial e
 runs offline via `scripts/coverage_benchmark.py`, which writes
 `docs/coverage_benchmark.md`. See RR-003 and RR-007 in `docs/review_register.md` for
 the measured numbers and the reason for the offline/CI split.
+
+## Public follow-up tracking
+
+The historical entries above are not new feature commitments. Remaining work:
+
+- [#2](https://github.com/NatLabRockies/pyTOST/issues/2): Resolved. Temporal-engine user
+  documentation matches the GLS default and aggregation behavior (SB-001 follow-up).
+- [#1](https://github.com/NatLabRockies/pyTOST/issues/1): Reconcile the historical JOSS readiness plan and checklist with completed work
+  and current submission criteria.
+- [#3](https://github.com/NatLabRockies/pyTOST/issues/3): Verify the start of public development and document the six-month eligibility
+  date; repository creation and imported commit dates alone do not prove when
+  development became public.
+
+Closed enhancements are not reopened merely to populate the tracker.
