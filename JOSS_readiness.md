@@ -6,6 +6,50 @@ Generated 2026-06-24.*
 
 ---
 
+## Public-development eligibility investigation (2026-11-18)
+
+Investigation for [#3](https://github.com/NatLabRockies/pyTOST/issues/3):
+**the public-development start date remains unknown, and submission eligibility is
+not established.** Closing the investigation does not certify eligibility.
+
+Verified through the GitHub API:
+
+| Record | Timestamp (UTC) | What it establishes |
+|---|---|---|
+| Repository creation | 2025-10-06 22:14:40 | Creation, not public visibility at that time |
+| Current visibility | Public, checked 2026-11-18 | Current access only |
+| [v0.1 release](https://github.com/NatLabRockies/pyTOST/releases/tag/v0.1) | 2026-04-03 02:12:55 | Recorded release publication, not proof it was public then |
+| [v0.15.0 release](https://github.com/NatLabRockies/pyTOST/releases/tag/v0.15.0) | 2026-06-22 16:33:33 | Recorded release publication |
+| [v0.17.0 release](https://github.com/NatLabRockies/pyTOST/releases/tag/v0.17.0) | 2026-09-20 13:23:22 | Recorded release publication |
+
+`CHANGELOG.md` describes private development followed by incremental public
+development at v0.15.0. That narrative is not independent visibility evidence.
+Imported private archives and their commit dates cannot establish public history.
+No visibility-change event was found in the repository events response; absence
+from that limited response does not establish a date either.
+
+The [current submission guidance](https://joss.readthedocs.io/en/latest/submitting.html)
+requires **more than six months** of public history with active development across
+that period. The [January 2026 announcement](https://blog.joss.theoj.org/2026/01/preparing-joss-for-a-generative-ai-future)
+describes at least six months for privately developed projects. Use the stricter
+current screening requirement when planning.
+
+If public development started on 2026-06-22, six calendar months end on 2026-12-22;
+2026-12-23 is a conservative planning date beyond that anniversary. This is
+conditional, not a verified eligibility date or a promise of editorial acceptance.
+The maintainer must supply contemporaneous public evidence or available
+visibility-change records before a firm submission date can be set.
+
+Real work is tracked in [#1](https://github.com/NatLabRockies/pyTOST/issues/1),
+[#2](https://github.com/NatLabRockies/pyTOST/issues/2), and
+[#3](https://github.com/NatLabRockies/pyTOST/issues/3). These issues were created on
+2026-11-18; their creation or closure does not demonstrate historical community
+engagement. Current guidance explicitly allows a well-maintained solo project to
+qualify without a PR workflow. Non-author engagement is a positive signal, not a
+separate gate.
+
+The schedule below is historical and awaits reconciliation in #1.
+
 ## Summary
 
 The software itself and the paper text are submission-quality. The blocking issues are
