@@ -1,23 +1,83 @@
-# pyTOST — JOSS Submission Readiness Action Plan
+# pyTOST - JOSS submission readiness
 
-*Reviewed against [JOSS submission requirements](https://joss.readthedocs.io/en/latest/submitting.html) and
-[pre-review screening criteria](https://joss.readthedocs.io/en/latest/submitting.html#pre-review-screening-criteria).
-Generated 2026-06-24.*
+Reconciled 2026-11-18 against the live repository and the current
+[submission guidance](https://joss.readthedocs.io/en/latest/submitting.html),
+[review criteria](https://joss.readthedocs.io/en/latest/review_criteria.html), and
+[January 2026 scope announcement](https://blog.joss.theoj.org/2026/01/preparing-joss-for-a-generative-ai-future).
+This replaces the obsolete three-month enhancement schedule. It does not certify
+editorial eligibility or acceptance.
 
----
+## Current assessment
 
-## Public-development eligibility investigation (2026-11-18)
+The original engineering enhancements are implemented. The repository has paper
+sources, automated checks, releases, a worked example, and support and governance
+policies. Remaining submission gates are evidence of sufficient public history,
+alignment of the submitted release with the manuscript, and final human review of
+scientific claims, research-use evidence, and AI disclosure.
+
+Current JOSS screening requires more than six months of public history with active
+development across that period. Waiting, imported private history, or spacing issue
+timestamps does not supply missing evidence of open development.
+
+For solo projects, the current guidance explicitly says that absence of a PR
+workflow alone does not disqualify an otherwise open and well-maintained project.
+Multiple indicators still matter: meaningful public commits, releases or a
+changelog, tests and CI, documentation, contribution guidance, and support or
+governance expectations. External adopters and non-author contributions strengthen
+the case but are not independent hard requirements.
+
+## Completed engineering schedule
+
+The original July-September schedule is reconciled below. Commit dates describe
+repository history, not independently verified dates of public availability.
+
+| Original task | Evidence / disposition |
+|---|---|
+| Track paper sources | `paper.md`, `paper.bib`, `paper_figure.png`; `5e810ad` |
+| Add CI | `.github/workflows/tests.yml`; `42ff550`, `05ba87d` |
+| Clarify optional R dependency | `README.md`, `[project.optional-dependencies]` in `pyproject.toml`; `ad5dea7` |
+| Align affiliation and copyright | `paper.md`, `LICENSE`, `.zenodo.json`; `a7ffc63` |
+| Establish canonical package version | `pyproject.toml` and latest tag use `0.17.0`; later work is explicitly unreleased |
+| Move notebook-only dependency | `nbformat` is in the `notebooks` extra; `dfcbd39` |
+| Add engine edge-case tests | `tests/test_edge_cases.py`; `081b149` |
+| Add test coverage tooling | `pytest-cov` in the test extra; `pixi run -e test test-cov` |
+| Document workflow and spatial estimation | `pyTOST/workflow.py`, `pyTOST/engines/spatial_tost.py`; `e948f18`, `87e2bb8` |
+| Add result summary | `TOSTResult.summary()`, `tests/test_summary.py`; `4ecbc04` |
+| Expose heteroskedastic primary engine | `run_tost`, `tests/test_heteroskedastic_engine_option.py`; `0f350b2` |
+| Add CI plotting | `plot_ci`, `tests/test_plot_ci.py`; `9a8c9e7` |
+| Add manuscript figure | `scripts/make_paper_figure.py`, `paper_figure.png`; `9ca8717`, `4bc2312` |
+| Expose HAC lag control | `WorkflowOptions.max_lag`, `tests/test_max_lag.py`; `fc4cac5` |
+| Validate spatial coordinates | `pyTOST/validation.py`, `tests/test_coordinate_validation.py`; `4258e1e` |
+| Add SAV worked example | `docs/sav_worked_example.md`, `scripts/sav_worked_example.py`; `12ba6ee` |
+| Add changelog | `CHANGELOG.md`; `36bd4ef` |
+| Validate IID and cluster coverage | `tests/test_ci_coverage.py`; `7e9a266` |
+| Add configurable trimmed mean | `tests/test_robust_trim.py`; `edb3898` |
+| Publish versioned release and archive identifier | [v0.17.0](https://github.com/NatLabRockies/pyTOST/releases/tag/v0.17.0), `.zenodo.json`, README DOI |
+| Update development status | README; `f9adcfb` |
+| Review manuscript | `paper.md`, `tests/test_paper.py`, `docs/review_register.md`; `20e3d54`, `e89f2b5`; final author approval remains required |
+| Add broader engine validation | Temporal, HC3, wild-cluster, and equal-weighted spatiotemporal tests; restricted spatial benchmark in `docs/coverage_benchmark.md` |
+| Add conduct, support, and governance policies | `CODE_OF_CONDUCT.md`, [SUPPORT.md](SUPPORT.md), [GOVERNANCE.md](GOVERNANCE.md), [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Reconcile temporal user guidance | README now explains GLS, explicit HAC, aggregation, and strict rejection; [#2](https://github.com/NatLabRockies/pyTOST/issues/2) |
+| External preprint or adopter issue | Optional strengthening, not an engineering blocker or a fabricated-engagement task |
+| Submit to JOSS | Not completed; subject to the gates below |
+
+Coverage results apply to the configurations actually exercised. In particular,
+the spatial benchmark fixes `nu_grid=(0.5,)` and both spatial benchmarks use
+`point_estimator="equal_weighted"`; they do not establish coverage for every
+default GLS/bootstrap configuration. See the artifact's recorded `method` values.
+
+## Public-development eligibility investigation
 
 Investigation for [#3](https://github.com/NatLabRockies/pyTOST/issues/3):
 **the public-development start date remains unknown, and submission eligibility is
 not established.** Closing the investigation does not certify eligibility.
 
-Verified through the GitHub API:
+Verified through the GitHub API on 2026-11-18:
 
 | Record | Timestamp (UTC) | What it establishes |
 |---|---|---|
 | Repository creation | 2025-10-06 22:14:40 | Creation, not public visibility at that time |
-| Current visibility | Public, checked 2026-11-18 | Current access only |
+| Current visibility | Public | Current access only |
 | [v0.1 release](https://github.com/NatLabRockies/pyTOST/releases/tag/v0.1) | 2026-04-03 02:12:55 | Recorded release publication, not proof it was public then |
 | [v0.15.0 release](https://github.com/NatLabRockies/pyTOST/releases/tag/v0.15.0) | 2026-06-22 16:33:33 | Recorded release publication |
 | [v0.17.0 release](https://github.com/NatLabRockies/pyTOST/releases/tag/v0.17.0) | 2026-09-20 13:23:22 | Recorded release publication |
@@ -28,9 +88,8 @@ Imported private archives and their commit dates cannot establish public history
 No visibility-change event was found in the repository events response; absence
 from that limited response does not establish a date either.
 
-The [current submission guidance](https://joss.readthedocs.io/en/latest/submitting.html)
-requires **more than six months** of public history with active development across
-that period. The [January 2026 announcement](https://blog.joss.theoj.org/2026/01/preparing-joss-for-a-generative-ai-future)
+The current submission guidance requires **more than six months** of public
+history with active development across that period. The January announcement
 describes at least six months for privately developed projects. Use the stricter
 current screening requirement when planning.
 
@@ -40,363 +99,44 @@ conditional, not a verified eligibility date or a promise of editorial acceptanc
 The maintainer must supply contemporaneous public evidence or available
 visibility-change records before a firm submission date can be set.
 
-Real work is tracked in [#1](https://github.com/NatLabRockies/pyTOST/issues/1),
+Issues [#1](https://github.com/NatLabRockies/pyTOST/issues/1),
 [#2](https://github.com/NatLabRockies/pyTOST/issues/2), and
-[#3](https://github.com/NatLabRockies/pyTOST/issues/3). These issues were created on
-2026-11-18; their creation or closure does not demonstrate historical community
-engagement. Current guidance explicitly allows a well-maintained solo project to
-qualify without a PR workflow. Non-author engagement is a positive signal, not a
-separate gate.
-
-The schedule below is historical and awaits reconciliation in #1.
-
-## Summary
-
-The software itself and the paper text are submission-quality. The blocking issues are
-structural: the paper files are gitignored, the public commit history is too sparse and
-concentrated to pass JOSS's automated iterative-development checks, and there is no CI
-workflow. Fix the one-line issues immediately, then invest the next three months in
-building a genuine public development record before submitting.
-
----
-
-## 🔴 Blocking Fixes (will cause desk rejection without these)
-
-### 1. Remove `paper.md` and `paper.bib` from `.gitignore`
-
-**File:** `.gitignore`
-
-The current `.gitignore` contains:
-
-```
-# JOSS paper (kept locally, not published in repo)
-paper.md
-paper.bib
-```
-
-JOSS requires: *"Your paper (`paper.md` and BibTeX files, plus any figures) must be hosted
-in a Git-based repository together with your software."* The editorial bot compiles the
-paper directly from the public GitHub repo and will fail silently if the files are absent.
-
-**Fix:** Remove those two lines from `.gitignore`, then `git add paper.md paper.bib` and commit.
-
----
-
-### 2. Add a CI workflow for running tests
-
-**Missing file:** `.github/workflows/tests.yml`
-
-The only GitHub Actions workflow is `zenodo-release.yml`. JOSS reviewers explicitly check
-for tests + CI as an open-source practice signal (screening criterion 3). Without it,
-the submission is materially weaker even if the test suite itself is good.
-
-**Fix:** Add a workflow such as:
-
-```yaml
-name: Tests
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[test]"
-      - run: pytest -q
-```
-
----
-
-### 3. Strengthen the research impact statement (not a blocker)
-
-**File:** `paper.md` — "Research impact statement"
-
-An earlier revision of this document treated external adoption as a gate. That was an
-over-reading of the JOSS criteria. The
-[submission guidelines](https://joss.readthedocs.io/en/latest/submitting.html) require
-evidence of research use "at minimum by the developers themselves," and list external
-engagement as a *strong positive signal, not a gate*. What is genuinely disqualifying is
-an **aspirational** statement, that is, describing intended rather than realized use.
-
-The current statement therefore satisfies criterion 2: it describes realized internal use
-at NLR and points to verifiable artifacts (the worked example, the regenerable figure,
-coverage results produced by the test suite, and a Zenodo DOI).
-
-**Optional strengthening, in order of value:** a preprint describing an SAV equivalence
-analysis that uses pyTOST; documented adoption by a collaborator at another institution;
-an external issue or pull request. None of these blocks submission.
-
----
-
-### 4. Build a genuine public development history
-
-**This is the hardest blocker.** JOSS runs automated checks on commit distribution.
-The current public log shows meaningful work on exactly 3 calendar days:
-
-| Date | Commits | Content |
-|------|---------|---------|
-| 2025-10-06 | 1 | Initial commit |
-| 2026-03-19 to 20 | 5 | v0.1, repo reorg, README, infrastructure, notebooks |
-| 2026-06-22 | 10 | License, packaging, CI, Zenodo, paper fixes (all in one day) |
-
-JOSS explicitly warns: *"A repository where all significant work was added in a
-concentrated window is a signal that the project was not developed iteratively."* The
-presence of `.git/filter-repo/already_ran` confirms history was rewritten, and
-the untracked `old/pyTOSTv0.1.zip` through `pyTOSTv0.18.zip` reveal that the real
-development happened outside the public repo.
-
-There are two paths forward:
-
-**Path A — Recover history from the zip archives (preferred):**
-See the dedicated section below.
-
-**Path B — Commit ongoing work publicly for 3+ months:**
-See the 3-month enhancement plan below. This is the honest path forward even if you
-also pursue Path A.
-
----
-
-## 🟡 Fixes Required During Review
-
-### 5. Update README "Development status" section
-
-The current text says *"pyTOST is being prepared for open-source release and JOSS
-submission"* and lists outstanding priorities including packaging, tests, and notebook
-cleanup — implying the software isn't ready. JOSS reviewers read the README.
-
-**Fix:** Replace the section with a statement of current stable status, e.g.:
-
-> pyTOST is an actively maintained research package at v0.x. Contributions, bug reports,
-> and feature requests are welcome via the issue tracker.
-
----
-
-### 6. Fix `rpy2` description in README
-
-**File:** `README.md` — "Installation" section
-
-`pyproject.toml` correctly lists `rpy2` as an optional dependency (`[project.optional-dependencies]` → `r`), but the README still lists it under "pyTOST currently declares the following runtime dependencies." This contradiction will confuse reviewers and users.
-
-**Fix:** Update the README to say `rpy2` is optional and show the install command:
-```bash
-pip install "pyTOST[r]"
-```
-
----
-
-### 7. Resolve the copyright holder / affiliation mismatch
-
-`LICENSE` says: `Copyright (c) 2026 Alliance for Energy Innovation, LLC`  
-`paper.md` affiliation says: `National Laboratory of the Rockies (NLR)`
-
-These need to be consistent. Reviewers will flag this. Either update the affiliation
-in `paper.md` to match the legal entity in `LICENSE`, or add a brief parenthetical
-explaining the relationship (e.g., "NLR, operated by Alliance for Energy Innovation, LLC").
-
----
-
-### 8. Resolve the version number confusion
-
-`pyproject.toml` declares `version = "0.15.0"`, but untracked files include
-`pyTOSTv0.19.zip`, `pyTOSTv0.19_joss_item1_fixed.zip`, and `pyTOSTv0.19_joss_item3_fixed.zip`.
-The `old/` directory contains zips through v0.18. The installed package and the zip
-versioning scheme are on different tracks.
-
-**Fix:** Decide on the canonical current version and use it everywhere — `pyproject.toml`,
-the git tag, and the Zenodo record. Add `old/`, `*.zip`, and `dist/` to `.gitignore` to
-prevent stale artifacts from appearing in the working tree.
-
----
-
-### 9. Justify or move `nbformat` out of runtime dependencies
-
-`nbformat>=5.9` is listed in `[project.dependencies]`. It is a Jupyter notebook
-format library, and reviewers will ask why importing `pyTOST` in a plain Python script
-requires notebook infrastructure. If it is only used inside `data_gen/` optimization
-notebooks, it should be optional or those notebooks should not be part of the installed
-package.
-
-**Fix:** Either move `nbformat` to `[project.optional-dependencies]` or remove it
-from installed package paths by adjusting `[tool.setuptools.packages.find]`.
-
----
-
-## 🟢 Minor Polish
-
-### 10. Add a figure to `paper.md`
-
-JOSS papers are not required to have figures, but a single schematic significantly
-strengthens the submission and gives reviewers something concrete to engage with.
-Good candidates:
-
-- A diagram showing the CI-within-margins equivalence decision (the `(-Δ, Δ)` interval
-  graphic used in most TOST tutorials).
-- A side-by-side comparison of CI widths across all five engines on the same synthetic
-  dataset, showing how ignoring dependence narrows the interval.
-
-Save any figure as `paper_figure.png` (or similar) in the repo root and reference it
-in `paper.md` with standard Markdown image syntax.
-
----
-
-### 11. Fix the `TOSTERpkg` BibTeX entry type
-
-**File:** `paper.bib`
-
-```bibtex
-@manual{TOSTERpkg, ...}
-```
-
-`@manual` is a TeX legacy type for printed manuals. For R packages, the modern preferred
-type is `@software` (BibLaTeX) or `@misc`. JOSS uses Pandoc/BibLaTeX, so `@software`
-with a `url` field is cleaner. This is low-stakes but worth correcting.
-
----
-
-### 12. Clean up untracked clutter
-
-The working tree currently has several untracked items that should not appear in a clean
-public repo:
-
-- `old/` — development archive, not part of the package
-- `pyTOSTv0.19.zip`, `pyTOSTv0.19_joss_item1_fixed.zip`, etc. — these reveal internal
-  versioning practices and may confuse reviewers
-- `.ipynb_checkpoints/` in the root — already gitignored but may reappear
-
-Add these to `.gitignore`:
-```
-old/
-*.zip
-dist/
-*.egg-info/
-```
-
----
-
-## 🗄️ Recovering Git History from the Zip Archives
-
-The `old/` directory contains `pyTOSTv0.1.zip` through `pyTOSTv0.18.zip`, and there is
-a `pyTOSTv0.19.zip` at the repo root. These represent the actual iterative development
-history that was never committed publicly. Reconstructing commits from these archives
-is the most honest and defensible way to establish the iterative history JOSS requires.
-
-### How to reconstruct
-
-1. **Extract each zip in order** and record the file modification timestamps inside each
-   archive — these approximate the real development dates.
-
-2. **For each version**, create a commit with `GIT_AUTHOR_DATE` and `GIT_COMMITTER_DATE`
-   set to the corresponding timestamp:
-
-   ```bash
-   # Example for v0.3
-   unzip -o pyTOSTv0.3.zip -d /tmp/pytost_v03
-   rsync -a --delete /tmp/pytost_v03/pyTOST/ ./pyTOST/
-   git add -A
-   GIT_AUTHOR_DATE="2025-11-15T10:00:00" \
-   GIT_COMMITTER_DATE="2025-11-15T10:00:00" \
-   git commit -m "v0.3: add temporal engine and HAC variance"
-   ```
-
-3. **Write meaningful commit messages** for each version based on what actually changed
-   between zips (diff the directories to see what was added/modified).
-
-4. **Use `git filter-repo` or `git rebase`** if you need to insert the reconstructed
-   history before the current tip.
-
-### What JOSS is looking for
-
-JOSS wants to see that the software was *refined through use and feedback over time*. A
-reconstructed history from real artifacts (zip archives with authentic timestamps) is
-legitimate — you are not fabricating work, you are surfacing development that genuinely
-happened but was not publicly tracked. The key is that the commit contents and dates
-should match the actual artifacts, and the commit messages should accurately describe
-what changed.
-
-Do not manufacture commits that add trivial whitespace changes on artificially spread
-dates — that is the kind of "repo dump" JOSS explicitly rejects.
-
----
-
-## 📅 3-Month Public Development Plan
-
-This plan assumes you submit no earlier than **late September 2026**, giving JOSS at
-least three months of observable public activity from now (June 2026). Commit each item
-individually as it is completed — do not batch them. The goal is a steady, substantive
-commit stream, not a burst.
-
-Each section below is a self-contained improvement that is genuinely useful to the
-package and produces a real, reviewable commit.
-
----
-
-### Month 1 (July 2026) — Infrastructure and correctness
-
-| Week | Task | Commit message (example) |
-|------|------|--------------------------|
-| 1 | Add CI test workflow (see fix #2 above) | `ci: add pytest workflow for Python 3.10 and 3.11` |
-| 1 | Fix `.gitignore` to include `paper.md`/`paper.bib`; push both files | `paper: add JOSS paper.md and paper.bib to repo` |
-| 1 | Fix README rpy2 description (fix #6) | `docs: clarify rpy2 is an optional dependency` |
-| 2 | Fix copyright/affiliation mismatch (fix #7) | `docs: align LICENSE copyright holder with paper affiliation` |
-| 2 | Resolve version to a single canonical number and tag it | `release: bump version to 0.16.0` |
-| 2 | Move `nbformat` to optional or justify it (fix #9) | `packaging: move nbformat to optional notebook dependencies` |
-| 3 | Add edge-case tests: single-cluster spatial input, unbalanced spatiotemporal panel with T=2, empty margins list | `tests: add edge case coverage for spatial and spatiotemporal engines` |
-| 3 | Add `pytest-cov` to test deps and measure coverage; document it in README | `tests: add coverage reporting; current coverage ~N%` |
-| 4 | Improve docstrings in `workflow.py` — add parameter types, return schema, a worked example | `docs: expand run_tost docstring with full parameter reference` |
-| 4 | Improve docstrings in `engines/spatial_tost.py` — describe Matérn parameter estimation | `docs: document SpatialTOST covariance estimation procedure` |
-
----
-
-### Month 2 (August 2026) — Feature enhancements
-
-| Week | Task | Commit message (example) |
-|------|------|--------------------------|
-| 1 | Add a `summary()` method to the result dict that prints a human-readable equivalence decision table | `feat: add run_tost summary output formatter` |
-| 1 | Add `engine="heteroskedastic"` as a first-class `run_tost` option (currently only surfaced via sensitivity) | `feat: expose heteroskedastic engine as a primary run_tost option` |
-| 2 | Add `plot_ci()` utility: a matplotlib figure showing CI bars for each engine result, suitable for reports | `feat: add plot_ci visualization for comparing engine CIs` |
-| 2 | Use the figure from `plot_ci()` to add a figure to `paper.md` (fix #10) | `paper: add CI comparison figure to JOSS paper` |
-| 3 | Add `WorkflowOptions.max_lag` parameter to let users override the automatic Newey–West lag selection | `feat: add max_lag option to temporal engine HAC estimator` |
-| 3 | Add input validation with informative error messages when `x`/`ycoord` columns contain NaN | `fix: raise informative error for NaN coordinates in spatial engine` |
-| 4 | Write a vignette-style section in the README or a `docs/` folder showing the full SAV use-case workflow (anonymized/synthetic) | `docs: add SAV equivalence analysis worked example` |
-| 4 | Add `CHANGELOG.md` and backfill entries for v0.1–current | `docs: add CHANGELOG with history from v0.1 to present` |
-
----
-
-### Month 3 (September 2026) — Robustness, release, and submission prep
-
-| Week | Task | Commit message (example) |
-|------|------|--------------------------|
-| 1 | Add parametric tests validating CI coverage against analytical solutions for the IID and cluster engines (Monte Carlo, fixed seed) | `tests: add CI coverage Monte Carlo validation for IID and cluster engines` |
-| 1 | Add a `RobustLocationTOST` path for trimmed mean with configurable trim fraction | `feat: support configurable trim fraction in RobustLocationTOST` |
-| 2 | *Optional, not a gate:* post a preprint describing a concrete use case and cite it in the research impact section | `paper: cite preprint in research impact statement` |
-| 2 | Tag `v0.17.0` release; trigger Zenodo workflow to mint a DOI; update `.zenodo.json` with DOI | `release: v0.17.0 — mint Zenodo DOI for JOSS submission` |
-| 3 | Update `paper.md` date field and do final review of all sections against JOSS review checklist | `paper: final pre-submission review pass` |
-| 3 | Update README "Development status" section (fix #5) | `docs: update README development status for v0.17 release` |
-| 4 | *Optional, not a gate:* ask a colleague at another institution to install pyTOST from PyPI on a clean environment and file a GitHub issue | *(their issue + your response is a positive engagement signal)* |
-| 4 | Submit to JOSS | — |
-
----
-
-## Checklist Before Pressing Submit
-
-- [ ] `paper.md` and `paper.bib` are **not** in `.gitignore` and are present on the default branch
-- [ ] CI workflow runs and passes on the current `main`
-- [ ] At least one tagged release with a minted Zenodo DOI exists
-- [ ] Zenodo DOI is referenced in `paper.md` or `.zenodo.json`
-- [ ] Research impact section cites at least one preprint or external use
-- [ ] README does not describe the package as "being prepared" for anything
-- [ ] Copyright holder in `LICENSE` matches (or is explained alongside) the affiliation in `paper.md`
-- [ ] `rpy2` is documented as optional in the README
-- [ ] Version in `pyproject.toml` matches the git tag and Zenodo record
-- [ ] Public commit history shows substantive commits spread across at least 3 months
-- [ ] A colleague outside NLR has successfully installed and run the package
+[#3](https://github.com/NatLabRockies/pyTOST/issues/3) were created on 2026-11-18 to
+track real follow-up work. Their creation or closure does not demonstrate historical
+community engagement.
+
+## Remaining submission work
+
+| Priority | Task | Completion evidence required |
+|---|---|---|
+| Gate | Verify public-development eligibility | Maintainer-provided visibility or contemporaneous public evidence; sustained activity across the required interval |
+| Gate | Reconcile manuscript claims with actual default inference paths | Coverage evidence and wording must identify the estimator/configuration tested; unsupported generalizations must not be presented as validation |
+| Gate | Prepare a release matching the manuscript | Version, tag, built distributions, release notes, and archive identify the same code; current post-v0.17.0 changes remain unreleased |
+| Gate | Confirm realized research use | Author verifies the NLR use described in the paper and can demonstrate it to editors; synthetic examples support reproducibility but are not proof of realized adoption |
+| Gate | Complete accurate AI disclosure | Author checks tools/models and versions actually used, code/paper/docs assistance, scope, and human review; intended model choice is not proof of actual model use |
+| Final check | Author reviews manuscript and submission metadata | Date, affiliations, references, figure, research-use claims, acknowledgements, and any required conflict/funding disclosures verified |
+| Optional | Obtain independent installation feedback or publish a use-case preprint | Genuine feedback or publication, if available; no requirement to manufacture a non-author issue |
+
+AI-assisted preparation does not establish that the human author reviewed every
+output. The author must make that confirmation personally. JOSS also prohibits AI
+for author-editor/reviewer conversations except translation; the author must handle
+those exchanges.
+
+Implementation follow-ups and issue links are tracked in
+[`docs/scope_backlog.md`](docs/scope_backlog.md); verified findings are recorded in
+[`docs/review_register.md`](docs/review_register.md). Do not implement new inference
+methods solely to fill time before submission.
+
+## Before pressing submit
+
+- [x] Paper, bibliography, and figure are tracked with the source.
+- [x] An OSI-approved license and contribution guidance are present.
+- [x] Automated tests and CI exist; 290 tests passed locally on 2026-11-18.
+- [x] Tagged releases and archive metadata exist.
+- [x] Support and governance expectations are documented.
+- [x] A reproducible worked example and benchmark artifacts exist.
+- [ ] Public-development start and more-than-six-month history are verified.
+- [ ] Default inference claims and coverage evidence agree.
+- [ ] The submitted release, manuscript, and archived version agree.
+- [ ] The author confirms research-use evidence and the complete AI disclosure.
+- [ ] Final author review is complete and CI passes at the submission commit.

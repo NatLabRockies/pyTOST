@@ -65,10 +65,11 @@ The historical entries above are not new feature commitments. Remaining work:
 
 - [#2](https://github.com/NatLabRockies/pyTOST/issues/2): Resolved. Temporal-engine user
   documentation matches the GLS default and aggregation behavior (SB-001 follow-up).
-- [#1](https://github.com/NatLabRockies/pyTOST/issues/1): Reconcile the historical JOSS readiness plan and checklist with completed work
-  and current submission criteria.
-- [#3](https://github.com/NatLabRockies/pyTOST/issues/3): Verify the start of public development and document the six-month eligibility
-  date; repository creation and imported commit dates alone do not prove when
-  development became public.
+- [#1](https://github.com/NatLabRockies/pyTOST/issues/1): Reconciled the historical
+  schedule and checklist in `JOSS_readiness.md` against completed work and current
+  submission criteria.
+- [#3](https://github.com/NatLabRockies/pyTOST/issues/3): Investigation complete.
+  Public-development start remains unknown; `JOSS_readiness.md` records evidence,
+  conditional timing, and the remaining maintainer-owned eligibility gate.
 
 Closed enhancements are not reopened merely to populate the tracker.
