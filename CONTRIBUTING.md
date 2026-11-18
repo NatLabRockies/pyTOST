@@ -21,7 +21,9 @@ When reporting a bug, include:
 
 ## Seeking support
 
-For usage questions, open an issue and label it as a question or support request if your issue template setup supports labels.
+For usage questions and reporting guidance, see [SUPPORT.md](SUPPORT.md).
+Support is best-effort, without a guaranteed response time. Project roles and the
+decision process are described in [GOVERNANCE.md](GOVERNANCE.md).
 
 ## Contributing code or documentation
 
