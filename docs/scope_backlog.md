@@ -79,11 +79,22 @@ Closed enhancements are not reopened merely to populate the tracker.
 These are evidence-backed follow-ups, not a commitment to manufacture activity.
 See RR-009 through RR-011 in `docs/review_register.md` for reproductions and impact.
 
-| Target window | Work | Prerequisite / boundary |
+| Earliest start date | Work | Prerequisite / boundary |
 |---|---|---|
-| Week 1 | [#4](https://github.com/NatLabRockies/pyTOST/issues/4): Reject missing temporal observations before aggregation (RR-009) | Focused input-validation fix; no new estimator or dependency |
-| Weeks 1-2 | [#5](https://github.com/NatLabRockies/pyTOST/issues/5): Measure default spatial and spatiotemporal interval coverage (RR-010) | Extend the existing offline benchmark; do not assume default paths pass or fail |
-| Weeks 2-3 | [#6](https://github.com/NatLabRockies/pyTOST/issues/6): Prepare a manuscript-aligned release and revision-specific provenance (RR-011) | Correctness and validation resolved first; maintainer approves version and publication |
+| 2026-11-21 | [#4](https://github.com/NatLabRockies/pyTOST/issues/4): Reject missing temporal observations before aggregation (RR-009) | Focused input-validation fix; no new estimator or dependency |
+| 2026-11-28 | [#5](https://github.com/NatLabRockies/pyTOST/issues/5): Measure default spatial and spatiotemporal interval coverage (RR-010) | Complete #4 first; extend the existing offline benchmark; do not assume default paths pass or fail |
+| 2026-12-09 | [#6](https://github.com/NatLabRockies/pyTOST/issues/6): Prepare a manuscript-aligned release and revision-specific provenance (RR-011) | Complete #4 and #5 first; maintainer approves version and publication |
+
+The maintainer requested these dates on 2026-11-18: three days, ten days, and
+three weeks later, respectively. They are earliest start dates, not completion
+deadlines. Work proceeds one issue at a time; unresolved prerequisites delay the
+next issue rather than bypassing its checks.
+
+This is a recorded plan, not an enabled scheduler. The CLI cannot initiate a new
+session on these dates. Until a separately approved execution service is configured,
+a maintainer must resume the agent to start the next eligible issue. No package
+publication, new statistical method, or dependency change is preapproved by this
+schedule.
 
 Eligibility evidence and final author review remain separate maintainer-owned
 gates in `JOSS_readiness.md`. These engineering tasks do not resolve them.
