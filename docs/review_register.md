@@ -399,6 +399,7 @@ test that keeps HAC's anticonservatism documented.
 - **Severity:** High
 - **Category:** Correctness / input validation
 - **Status:** Open; verified 2026-11-18
+- **Issue:** [#4](https://github.com/NatLabRockies/pyTOST/issues/4)
 - **Affected files:** `pyTOST/engines/temporal_tost.py`, `pyTOST/workflow.py`,
   `tests/test_temporal_order_invariance.py`
 - **Required action:** Reject missing responses and time labels before aggregation,
@@ -429,6 +430,7 @@ calls, with and without tied times. Preserve supported valid time-label types.
 - **Severity:** High
 - **Category:** Validation gap / accuracy of claims
 - **Status:** Open; verified 2026-11-18
+- **Issue:** [#5](https://github.com/NatLabRockies/pyTOST/issues/5)
 - **Affected files:** `scripts/coverage_benchmark.py`, `docs/coverage_benchmark.md`,
   `tests/test_ci_coverage.py`, `paper.md`
 - **Required action:** Measure the shipped default spatial and spatiotemporal
@@ -459,6 +461,7 @@ after measuring a failure, and do not weaken thresholds to pass.
 - **Severity:** Medium
 - **Category:** Release reproducibility
 - **Status:** Open; verified 2026-11-18
+- **Issue:** [#6](https://github.com/NatLabRockies/pyTOST/issues/6)
 - **Affected files:** `pyproject.toml`, `CHANGELOG.md`, `.zenodo.json`, `paper.md`,
   release artifacts and benchmark metadata
 - **Required action:** Prepare a maintainer-approved, validated release of the code

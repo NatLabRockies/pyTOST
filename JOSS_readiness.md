@@ -110,8 +110,9 @@ community engagement.
 | Priority | Task | Completion evidence required |
 |---|---|---|
 | Gate | Verify public-development eligibility | Maintainer-provided visibility or contemporaneous public evidence; sustained activity across the required interval |
-| Gate | Reconcile manuscript claims with actual default inference paths | Coverage evidence and wording must identify the estimator/configuration tested; unsupported generalizations must not be presented as validation |
-| Gate | Prepare a release matching the manuscript | Version, tag, built distributions, release notes, and archive identify the same code; current post-v0.17.0 changes remain unreleased |
+| Gate | Resolve silent temporal omission of missing observations ([#4](https://github.com/NatLabRockies/pyTOST/issues/4)) | Actionable validation before aggregation, verified through direct and workflow regression tests |
+| Gate | Reconcile manuscript claims with actual default inference paths ([#5](https://github.com/NatLabRockies/pyTOST/issues/5)) | Coverage evidence and wording must identify the estimator/configuration tested; unsupported generalizations must not be presented as validation |
+| Gate | Prepare a release matching the manuscript ([#6](https://github.com/NatLabRockies/pyTOST/issues/6)) | Version, tag, built distributions, release notes, and archive identify the same code; current post-v0.17.0 changes remain unreleased |
 | Gate | Confirm realized research use | Author verifies the NLR use described in the paper and can demonstrate it to editors; synthetic examples support reproducibility but are not proof of realized adoption |
 | Gate | Complete accurate AI disclosure | Author checks tools/models and versions actually used, code/paper/docs assistance, scope, and human review; intended model choice is not proof of actual model use |
 | Final check | Author reviews manuscript and submission metadata | Date, affiliations, references, figure, research-use claims, acknowledgements, and any required conflict/funding disclosures verified |
@@ -136,6 +137,7 @@ methods solely to fill time before submission.
 - [x] Support and governance expectations are documented.
 - [x] A reproducible worked example and benchmark artifacts exist.
 - [ ] Public-development start and more-than-six-month history are verified.
+- [ ] Missing temporal observations are rejected before aggregation.
 - [ ] Default inference claims and coverage evidence agree.
 - [ ] The submitted release, manuscript, and archived version agree.
 - [ ] The author confirms research-use evidence and the complete AI disclosure.
